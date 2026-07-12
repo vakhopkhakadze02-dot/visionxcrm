@@ -213,7 +213,7 @@ export default function AnalyticsView({
       </div>
 
       {/* Analytics Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Revenue */}
         <div className="bg-white border border-slate-100 rounded-xl p-5 shadow-xs flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
@@ -278,7 +278,7 @@ export default function AnalyticsView({
       {/* Visual Analytics Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Chart 1: Revenue trend over last 7 days (Custom gorgeous HTML/CSS bars) */}
-        <div className="lg:col-span-7 bg-white border border-slate-100 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+        <div className="lg:col-span-7 bg-white border border-slate-100 rounded-2xl p-5 shadow-xs flex flex-col justify-between overflow-hidden">
           <div>
             <h3 className="font-bold text-sm text-slate-800 font-display">
               ყოველდღიური შემოსავლის ტრენდი
@@ -288,43 +288,46 @@ export default function AnalyticsView({
             </p>
           </div>
 
-          {/* Bar Grid */}
-          <div className="h-56 mt-6 flex items-end justify-between gap-2.5 px-2 relative border-b border-slate-100 pb-2">
-            {/* Background horizontal lines */}
-            <div className="absolute inset-x-0 top-0 border-t border-slate-100/50 h-0 pointer-events-none" />
-            <div className="absolute inset-x-0 top-1/4 border-t border-slate-100/50 h-0 pointer-events-none" />
-            <div className="absolute inset-x-0 top-2/4 border-t border-slate-100/50 h-0 pointer-events-none" />
-            <div className="absolute inset-x-0 top-3/4 border-t border-slate-100/50 h-0 pointer-events-none" />
+          {/* Scrollable Container for Narrow Viewports */}
+          <div className="w-full overflow-x-auto scrollbar-thin mt-6">
+            {/* Bar Grid with min-width to prevent squeezing */}
+            <div className="h-56 min-w-[450px] flex items-end justify-between gap-2.5 px-2 relative border-b border-slate-100 pb-2">
+              {/* Background horizontal lines */}
+              <div className="absolute inset-x-0 top-0 border-t border-slate-100/50 h-0 pointer-events-none" />
+              <div className="absolute inset-x-0 top-1/4 border-t border-slate-100/50 h-0 pointer-events-none" />
+              <div className="absolute inset-x-0 top-2/4 border-t border-slate-100/50 h-0 pointer-events-none" />
+              <div className="absolute inset-x-0 top-3/4 border-t border-slate-100/50 h-0 pointer-events-none" />
 
-            {dailyRevenueData.map((d, index) => {
-              const barHeightPercent = Math.min(100, Math.max(5, (d.earnings / maxEarnings) * 100));
-              return (
-                <div key={index} className="flex-1 flex flex-col items-center group relative z-10">
-                  {/* Tooltip on Hover */}
-                  <div className="absolute bottom-full mb-2 bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md text-center pointer-events-none min-w-[70px]">
-                    <span className="font-bold block">{d.earnings}₾</span>
-                    <span className="text-[9px] text-slate-300 block font-normal">{d.count} ჯავშანი</span>
+              {dailyRevenueData.map((d, index) => {
+                const barHeightPercent = Math.min(100, Math.max(5, (d.earnings / maxEarnings) * 100));
+                return (
+                  <div key={index} className="flex-1 flex flex-col items-center group relative z-10">
+                    {/* Tooltip on Hover */}
+                    <div className="absolute bottom-full mb-2 bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md text-center pointer-events-none min-w-[70px]">
+                      <span className="font-bold block">{d.earnings}₾</span>
+                      <span className="text-[9px] text-slate-300 block font-normal">{d.count} ჯავშანი</span>
+                    </div>
+
+                    {/* Active Bar */}
+                    <div 
+                      style={{ height: `${barHeightPercent}%` }}
+                      className="w-full max-w-[36px] bg-violet-600 hover:bg-violet-500 rounded-t-lg transition-all duration-300 shadow-sm relative overflow-hidden"
+                    >
+                      {/* Visual gradient gloss overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/10 to-white/20" />
+                    </div>
+
+                    {/* Labels */}
+                    <span className="text-[10px] font-bold text-slate-700 mt-2 block">
+                      {d.label}
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-semibold block uppercase">
+                      {d.day}
+                    </span>
                   </div>
-
-                  {/* Active Bar */}
-                  <div 
-                    style={{ height: `${barHeightPercent}%` }}
-                    className="w-full max-w-[36px] bg-violet-600 hover:bg-violet-500 rounded-t-lg transition-all duration-300 shadow-sm relative overflow-hidden"
-                  >
-                    {/* Visual gradient gloss overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/10 to-white/20" />
-                  </div>
-
-                  {/* Labels */}
-                  <span className="text-[10px] font-bold text-slate-700 mt-2 block">
-                    {d.label}
-                  </span>
-                  <span className="text-[9px] text-slate-400 font-semibold block uppercase">
-                    {d.day}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -382,8 +385,8 @@ export default function AnalyticsView({
             დააწკაპუნეთ სახელს დეტალების სანახავად
           </span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-left border-collapse text-xs min-w-[650px]">
             <thead>
               <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider bg-slate-50/20">
                 <th className="p-4">სახელი და გვარი</th>

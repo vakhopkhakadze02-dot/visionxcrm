@@ -96,7 +96,7 @@ export default function Dashboard({
       </div>
 
       {/* Statistics Cards (High Density Theme) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Card 1 */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between shadow-xs">
           <div className="space-y-0.5">
@@ -175,7 +175,7 @@ export default function Dashboard({
               {todayBookings.map((booking) => (
                 <div 
                   key={booking.id}
-                  className="p-3 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 rounded-lg transition-all duration-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  className="p-3 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 rounded-lg transition-all duration-150 flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
                   {/* Left Info Column */}
                   <div className="flex items-center gap-4 flex-1">
@@ -217,7 +217,7 @@ export default function Dashboard({
                   </div>
 
                   {/* Right Status / Controls Column */}
-                  <div className="flex items-center justify-end gap-3 shrink-0 self-end sm:self-auto">
+                  <div className="flex items-center justify-between md:justify-end gap-3 shrink-0 w-full md:w-auto">
                     {/* Status Badge */}
                     <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded border ${
                       booking.status === "დასრულებული"
