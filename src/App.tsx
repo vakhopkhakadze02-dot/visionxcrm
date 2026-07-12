@@ -18,7 +18,9 @@ import {
   Check, 
   Copy, 
   ChevronRight,
-  HelpCircle
+  HelpCircle,
+  Menu,
+  X
 } from "lucide-react";
 
 import { 
@@ -153,6 +155,7 @@ const mapBookingToDB = (bk: Booking, userId: string) => ({
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   // Supabase auth and state synchronization
   const [session, setSession] = useState<any>(null);
@@ -930,6 +933,24 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
+      {/* Mobile Top Navigation Bar */}
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between px-4 z-30 shadow-md border-b border-slate-800">
+        <button 
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition-colors"
+          title="მენიუ"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+        <span className="font-bold text-sm tracking-tight font-display flex items-center gap-2">
+          <span>VisionX CRM</span>
+          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">
+            {selectedBusiness.name !== "იტვირთება..." ? selectedBusiness.name : "CRM"}
+          </span>
+        </span>
+        <div className="w-10"></div> {/* Spacer for symmetry */}
+      </div>
+
       <Sidebar 
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
@@ -939,9 +960,11 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
         onAddBusiness={handleAddBusiness}
         onLogout={handleLogout}
         isSupabaseSynced={!isLocalMode}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex-1 pl-64 min-h-screen">
+      <main className="flex-1 md:pl-64 pl-0 pt-16 md:pt-0 min-h-screen">
         {/* Sync Info Header Bar */}
         {!isLocalMode && session && (
           <div className="bg-white border-b border-slate-200 px-8 py-2.5 flex items-center justify-between text-xs text-slate-500 font-medium">
@@ -979,7 +1002,7 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
           </div>
         )}
 
-        <div className="max-w-7xl mx-auto p-6 md:p-8 animate-fade-in">
+        <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fade-in">
           {currentTab === "dashboard" && (
             <Dashboard 
               selectedBusiness={selectedBusiness}

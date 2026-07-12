@@ -28,6 +28,8 @@ interface SidebarProps {
   onAddBusiness: (name: string, owner: string, category: string) => void;
   onLogout: () => void;
   isSupabaseSynced?: boolean;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 export default function Sidebar({
@@ -38,7 +40,9 @@ export default function Sidebar({
   onSelectBusiness,
   onAddBusiness,
   onLogout,
-  isSupabaseSynced = false
+  isSupabaseSynced = false,
+  isOpen,
+  onClose
 }: SidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -98,7 +102,16 @@ export default function Sidebar({
   };
 
   return (
-    <div className="w-64 bg-[#0f172a] text-slate-300 border-r border-slate-800 flex flex-col h-screen fixed left-0 top-0 z-20">
+    <>
+      {/* Mobile Backdrop Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-30 md:hidden transition-opacity"
+          onClick={onClose}
+        />
+      )}
+
+      <div className={`w-64 bg-[#0f172a] text-slate-300 border-r border-slate-800 flex flex-col h-screen fixed left-0 top-0 z-40 transition-transform duration-300 ${isOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0`}>
       {/* Brand & Business Selector */}
       <div className="p-5 border-b border-slate-800/80 relative">
         <div className="flex items-center gap-2.5 mb-4 px-1">
@@ -180,7 +193,10 @@ export default function Sidebar({
           return (
             <button
               key={item.id}
-              onClick={() => setCurrentTab(item.id)}
+              onClick={() => {
+                setCurrentTab(item.id);
+                onClose();
+              }}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-xs font-semibold transition-all duration-150 ${
                 isActive
                   ? "bg-indigo-600/15 text-white shadow-sm shadow-indigo-600/5 border-l-2 border-indigo-500 pl-2.5"
@@ -290,5 +306,6 @@ export default function Sidebar({
         </div>
       )}
     </div>
+    </>
   );
 }

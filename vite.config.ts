@@ -12,7 +12,7 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
-        includeAssets: ['icon.svg'],
+        includeAssets: ['icon.svg', 'icon.png'],
         manifest: {
           name: 'VisionX CRM',
           short_name: 'VisionX',
@@ -32,6 +32,18 @@ export default defineConfig(() => {
               src: 'icon.svg',
               sizes: '512x512',
               type: 'image/svg+xml',
+              purpose: 'any'
+            },
+            {
+              src: 'icon.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: 'icon.png',
+              sizes: '512x512',
+              type: 'image/png',
               purpose: 'any'
             },
             {
