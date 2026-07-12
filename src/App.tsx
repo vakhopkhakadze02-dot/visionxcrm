@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import CalendarView from "./components/CalendarView";
@@ -8,6 +8,7 @@ import StaffView from "./components/StaffView";
 import AnalyticsView from "./components/AnalyticsView";
 import BookingModal from "./components/BookingModal";
 import AuthView from "./components/AuthView";
+import NotificationCenter from "./components/NotificationCenter";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import { 
   Database, 
@@ -20,7 +21,9 @@ import {
   ChevronRight,
   HelpCircle,
   Menu,
-  X
+  X,
+  Sun,
+  Moon
 } from "lucide-react";
 
 import { 
@@ -156,6 +159,22 @@ const mapBookingToDB = (bk: Booking, userId: string) => ({
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const saved = localStorage.getItem("vxcrm_theme");
+    if (saved === "light" || saved === "dark") return saved;
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
+    return "light";
+  });
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    localStorage.setItem("vxcrm_theme", theme);
+  }, [theme]);
 
   // Supabase auth and state synchronization
   const [session, setSession] = useState<any>(null);
@@ -367,16 +386,18 @@ export default function App() {
   };
 
   // Compute enriched clients dynamically
-  const enrichedClients = clients.map(client => {
-    const clientBookings = bookings.filter(b => b.clientId === client.id && b.businessId === selectedBusiness.id);
-    const totalBookings = clientBookings.filter(b => b.status !== "გაუქმებული").length;
-    const totalSpent = clientBookings.filter(b => b.status === "დასრულებული").reduce((sum, b) => sum + b.price, 0);
-    return {
-      ...client,
-      totalBookings,
-      totalSpent
-    };
-  });
+  const enrichedClients = useMemo(() => {
+    return clients.map(client => {
+      const clientBookings = bookings.filter(b => b.clientId === client.id && b.businessId === selectedBusiness.id);
+      const totalBookings = clientBookings.filter(b => b.status !== "გაუქმებული").length;
+      const totalSpent = clientBookings.filter(b => b.status === "დასრულებული").reduce((sum, b) => sum + b.price, 0);
+      return {
+        ...client,
+        totalBookings,
+        totalSpent
+      };
+    });
+  }, [clients, bookings, selectedBusiness.id]);
 
   // --- ACTIONS ---
 
@@ -932,7 +953,7 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex transition-colors duration-200">
       {/* Mobile Top Navigation Bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between px-4 z-30 shadow-md border-b border-slate-800">
         <button 
@@ -948,7 +969,22 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
             {selectedBusiness.name !== "იტვირთება..." ? selectedBusiness.name : "CRM"}
           </span>
         </span>
-        <div className="w-10"></div> {/* Spacer for symmetry */}
+        <div className="flex items-center gap-1.5">
+          <NotificationCenter 
+            bookings={bookings}
+            clients={enrichedClients}
+            services={services}
+            staff={staff}
+            selectedBusinessId={selectedBusiness.id}
+          />
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition-colors flex items-center justify-center cursor-pointer"
+            title={theme === "dark" ? "დღის რეჟიმი" : "ღამის რეჟიმი"}
+          >
+            {theme === "dark" ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-400" />}
+          </button>
+        </div>
       </div>
 
       <Sidebar 
@@ -962,6 +998,8 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
         isSupabaseSynced={!isLocalMode}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
       />
 
       <main className="flex-1 md:pl-64 pl-0 pt-16 md:pt-0 min-h-screen">
@@ -1001,6 +1039,27 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
             </button>
           </div>
         )}
+
+        {/* Desktop Top Header Bar */}
+        <div className="hidden md:flex h-16 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 px-8 items-center justify-between z-20 transition-colors duration-200">
+          <div className="flex items-center gap-3">
+            <span className="font-display font-extrabold text-sm text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
+              <span>{selectedBusiness.name}</span>
+              <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider">
+                {selectedBusiness.category}
+              </span>
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <NotificationCenter 
+              bookings={bookings}
+              clients={enrichedClients}
+              services={services}
+              staff={staff}
+              selectedBusinessId={selectedBusiness.id}
+            />
+          </div>
+        </div>
 
         <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fade-in">
           {currentTab === "dashboard" && (

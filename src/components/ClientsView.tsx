@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { Search, Plus, UserPlus, Phone, Mail, FileText, Trash2, Edit2, Wallet, CalendarRange } from "lucide-react";
+import { Search, Plus, UserPlus, Phone, Mail, FileText, Trash2, Edit2, Wallet, CalendarRange, Download, FileSpreadsheet } from "lucide-react";
 import { Client } from "../types";
 
 interface ClientsViewProps {
@@ -23,6 +23,33 @@ export default function ClientsView({
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+
+  // CSV Export for Clients
+  const handleExportCSV = () => {
+    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", "ჯამური დანახარჯი (₾)", "შენიშვნა"];
+    const rows = clients.map(c => [
+      c.name,
+      c.phone,
+      c.email || "",
+      c.totalBookings,
+      c.totalSpent,
+      c.notes || ""
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "visionx_clients_export.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Form states
   const [name, setName] = useState("");
@@ -93,13 +120,23 @@ export default function ClientsView({
             მართეთ თქვენი მომხმარებლების მონაცემები, კონტაქტები და ვიზიტების ისტორია
           </p>
         </div>
-        <button
-          onClick={handleOpenAdd}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 self-start sm:self-auto shadow-sm"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>+ ახალი კლიენტი</span>
-        </button>
+        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          <button
+            onClick={handleExportCSV}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+            title="კლიენტების ექსპორტი CSV ფორმატში"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>ექსპორტი (.CSV)</span>
+          </button>
+          <button
+            onClick={handleOpenAdd}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>+ ახალი კლიენტი</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}

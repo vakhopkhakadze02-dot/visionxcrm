@@ -22,6 +22,17 @@ import {
   Briefcase
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { 
+  BarChart as RechartsBarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer,
+  Cell
+} from "recharts";
 import { Booking, Client, Service, Staff, Business } from "../types";
 
 interface AnalyticsViewProps {
@@ -117,6 +128,21 @@ export default function AnalyticsView({
     };
   }).sort((a, b) => b.revenue - a.revenue);
 
+  // Compute Employee Bookings for Recharts Bar Chart, sorted by total bookings descending
+  const staffBookingsChartData = staff.map(st => {
+    const staffBookings = businessBookings.filter(b => b.staffId === st.id);
+    const completed = staffBookings.filter(b => b.status === "დასრულებული").length;
+    const pending = staffBookings.filter(b => b.status === "მოლოდინში").length;
+    const canceled = staffBookings.filter(b => b.status === "გაუქმებული").length;
+    return {
+      name: st.name,
+      "ჯამური ჯავშნები": staffBookings.length,
+      "დასრულებული": completed,
+      "მოლოდინში": pending,
+      "გაუქმებული": canceled,
+    };
+  }).sort((a, b) => b["ჯამური ჯავშნები"] - a["ჯამური ჯავშნები"]);
+
   // JSON Export CRM Backup
   const handleExportData = () => {
     const dbBackup = {
@@ -139,6 +165,74 @@ export default function AnalyticsView({
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  // CSV Export for Clients (Customers)
+  const handleExportClientsCSV = () => {
+    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", "ჯამური დანახარჯი (₾)", "შენიშვნა"];
+    const rows = clients.map(c => [
+      c.name,
+      c.phone,
+      c.email || "",
+      c.totalBookings,
+      c.totalSpent,
+      c.notes || ""
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `visionx_clients_${selectedBusiness.name.replace(/\s+/g, "_")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccessMsg("კლიენტების სია წარმატებით იქნა ექსპორტირებული CSV ფაილში!");
+    setErrorMsg("");
+  };
+
+  // CSV Export for Bookings
+  const handleExportBookingsCSV = () => {
+    const businessBookings = bookings.filter(b => b.businessId === selectedBusiness.id);
+    const headers = ["ჯავშნის ID", "კლიენტის სახელი", "სერვისი", "თანამშრომელი", "თარიღი", "დრო", "ფასი (₾)", "სტატუსი", "შენიშვნა"];
+    
+    const rows = businessBookings.map(b => {
+      const clientName = clients.find(c => c.id === b.clientId)?.name || "უცნობი კლიენტი";
+      const serviceName = services.find(s => s.id === b.serviceId)?.name || "უცნობი სერვისი";
+      const staffName = staff.find(st => st.id === b.staffId)?.name || "უცნობი თანამშრომელი";
+      return [
+        b.id,
+        clientName,
+        serviceName,
+        staffName,
+        b.date,
+        b.time,
+        b.price,
+        b.status,
+        b.notes || ""
+      ];
+    });
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `visionx_bookings_${selectedBusiness.name.replace(/\s+/g, "_")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccessMsg("ჯავშნების სია წარმატებით იქნა ექსპორტირებული CSV ფაილში!");
+    setErrorMsg("");
   };
 
   // Drag & Drop / Click JSON Import
@@ -375,6 +469,104 @@ export default function AnalyticsView({
         </div>
       </div>
 
+      {/* Recharts Bar Chart: Bookings per Staff Member */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between transition-colors">
+        <div className="mb-4">
+          <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 font-display flex items-center gap-2">
+            <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            აქტივობა სპეციალისტების მიხედვით
+          </h3>
+          <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold mt-1">
+            ჯავშნების განაწილება სპეციალისტების მიხედვით (ჯამური, დასრულებული და გაუქმებული)
+          </p>
+        </div>
+
+        {staffBookingsChartData.length === 0 || staffBookingsChartData.every(d => d["ჯამური ჯავშნები"] === 0) ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-2">
+              <User className="w-6 h-6" />
+            </div>
+            <p className="text-slate-400 text-xs font-semibold">მონაცემები არასაკმარისია</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">ჯავშნები ჯერ არ არის დარეგისტრირებული.</p>
+          </div>
+        ) : (
+          <div className="h-80 w-full mt-4 text-[11px] font-medium font-sans">
+            <ResponsiveContainer width="100%" height="100%">
+              <RechartsBarChart
+                data={staffBookingsChartData}
+                margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-800" />
+                <XAxis 
+                  dataKey="name" 
+                  tickLine={false} 
+                  axisLine={false} 
+                  stroke="#94a3b8" 
+                  tick={{ fontSize: 10, fontWeight: 600 }}
+                />
+                <YAxis 
+                  tickLine={false} 
+                  axisLine={false} 
+                  stroke="#94a3b8" 
+                  tick={{ fontSize: 10, fontWeight: 600 }}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  cursor={{ fill: 'rgba(99, 102, 241, 0.04)' }}
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-slate-900/95 dark:bg-slate-950/95 text-white p-3 rounded-xl border border-slate-800 shadow-xl text-xs space-y-1.5 backdrop-blur-xs">
+                          <p className="font-bold font-display text-[11px] border-b border-slate-800 pb-1 mb-1">{label}</p>
+                          {payload.map((pld: any) => (
+                            <div key={pld.name} className="flex items-center justify-between gap-6">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: pld.fill }} />
+                                <span className="text-slate-400">{pld.name}:</span>
+                              </div>
+                              <span className="font-mono font-bold text-slate-200">{pld.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Legend 
+                  verticalAlign="top" 
+                  height={36} 
+                  iconType="circle" 
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: 11, fontWeight: 600 }}
+                />
+                <Bar 
+                  dataKey="ჯამური ჯავშნები" 
+                  name="ჯამური ჯავშნები"
+                  fill="#6366f1" 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={40}
+                />
+                <Bar 
+                  dataKey="დასრულებული" 
+                  name="დასრულებული"
+                  fill="#10b981" 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={40}
+                />
+                <Bar 
+                  dataKey="გაუქმებული" 
+                  name="გაუქმებული"
+                  fill="#f43f5e" 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={40}
+                />
+              </RechartsBarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
       {/* Staff Performance & Ranks Table */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
@@ -602,19 +794,39 @@ export default function AnalyticsView({
           <div className="p-4 border border-slate-100 bg-slate-50/50 rounded-2xl flex flex-col justify-between space-y-4">
             <div className="space-y-1.5">
               <h4 className="font-bold text-xs text-slate-700 uppercase tracking-wide">
-                ბაზის ექსპორტი (Backup)
+                მონაცემების ექსპორტი (Export)
               </h4>
               <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                ჩამოტვირთეთ თქვენი ბიზნესის სრული მონაცემები (კლიენტები, სერვისები, თანამშრომლები და ჯავშნები) უსაფრთხო .json ფაილის სახით.
+                ჩამოტვირთეთ თქვენი ბიზნესის მონაცემები სხვადასხვა ფორმატში ლოკალური მენეჯმენტისთვის ან გარე დამუშავებისთვის.
               </p>
             </div>
-            <button
-              onClick={handleExportData}
-              className="w-full sm:w-auto self-start bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-xs"
-            >
-              <Download className="w-4 h-4" />
-              CRM ბაზის ექსპორტი (.JSON)
-            </button>
+            
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={handleExportData}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                სრული ბაზის ექსპორტი (.JSON)
+              </button>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleExportClientsCSV}
+                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  კლიენტები (.CSV)
+                </button>
+                <button
+                  onClick={handleExportBookingsCSV}
+                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
+                  ჯავშნები (.CSV)
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Import Box */}

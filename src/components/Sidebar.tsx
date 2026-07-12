@@ -15,7 +15,9 @@ import {
   ChevronDown, 
   Plus, 
   Building2,
-  Check
+  Check,
+  Sun,
+  Moon
 } from "lucide-react";
 import { Business } from "../types";
 
@@ -30,6 +32,8 @@ interface SidebarProps {
   isSupabaseSynced?: boolean;
   isOpen: boolean;
   onClose: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
 }
 
 export default function Sidebar({
@@ -42,7 +46,9 @@ export default function Sidebar({
   onLogout,
   isSupabaseSynced = false,
   isOpen,
-  onClose
+  onClose,
+  theme,
+  onToggleTheme
 }: SidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -212,14 +218,22 @@ export default function Sidebar({
       </nav>
 
       {/* Bottom Footer Item */}
-      <div className="p-3 border-t border-slate-800">
+      <div className="p-3 border-t border-slate-800 flex items-center justify-between gap-2">
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left text-xs font-semibold text-slate-400 hover:bg-rose-950/20 hover:text-rose-400 transition-all duration-150"
+          className="flex-1 flex items-center gap-3 px-3 py-2 rounded-lg text-left text-xs font-semibold text-slate-400 hover:bg-rose-950/20 hover:text-rose-400 transition-all duration-150"
           id="logout-button"
         >
           <LogOut className="w-4 h-4 text-slate-500 group-hover:text-rose-400" />
           <span>გასვლა</span>
+        </button>
+        <button
+          onClick={onToggleTheme}
+          className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-all duration-150 cursor-pointer flex items-center justify-center shrink-0"
+          title={theme === "dark" ? "დღის რეჟიმი" : "ღამის რეჟიმი"}
+          id="theme-toggle-button"
+        >
+          {theme === "dark" ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-400" />}
         </button>
       </div>
 
