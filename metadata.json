@@ -1,0 +1,6 @@
+{
+  "name": "visionxcrm",
+  "description": "VisionX CRM - მრავალფუნქციური CRM პლატფორმა ბიზნესებისთვის, ინტეგრირებული ანალიტიკით, კალენდრით, კლიენტებისა და სერვისების მართვის მოდულებით.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
