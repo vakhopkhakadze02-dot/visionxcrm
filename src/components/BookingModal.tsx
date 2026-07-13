@@ -11,6 +11,7 @@ interface BookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (booking: Omit<Booking, "id"> & { id?: string }) => void;
+  onAddClient?: (client: Omit<Client, "id" | "totalBookings" | "totalSpent">) => Promise<Client>;
   bookingToEdit?: Booking | null;
   clients: Client[];
   services: Service[];
@@ -22,6 +23,7 @@ export default function BookingModal({
   isOpen,
   onClose,
   onSave,
+  onAddClient,
   bookingToEdit,
   clients,
   services,
@@ -37,6 +39,12 @@ export default function BookingModal({
   const [status, setStatus] = useState<"დასრულებული" | "მოლოდინში" | "გაუქმებული">("მოლოდინში");
   const [notes, setNotes] = useState("");
 
+  // Quick Client Add states
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [newClientNotes, setNewClientNotes] = useState("");
+
   // Update form fields if editing a booking
   useEffect(() => {
     if (bookingToEdit) {
@@ -48,6 +56,7 @@ export default function BookingModal({
       setPrice(bookingToEdit.price);
       setStatus(bookingToEdit.status);
       setNotes(bookingToEdit.notes || "");
+      setShowQuickAdd(false);
     } else {
       // Set defaults for new booking
       setClientId(clients[0]?.id || "");
@@ -58,8 +67,38 @@ export default function BookingModal({
       setPrice(services[0]?.price || 0);
       setStatus("მოლოდინში");
       setNotes("");
+      setShowQuickAdd(false);
     }
   }, [bookingToEdit, isOpen, clients, services, staff]);
+
+  const handleQuickAddClient = async () => {
+    if (!newClientName.trim() || !newClientPhone.trim()) {
+      alert("გთხოვთ მიუთითოთ კლიენტის სახელი და ტელეფონის ნომერი");
+      return;
+    }
+
+    if (onAddClient) {
+      try {
+        const newlyCreated = await onAddClient({
+          name: newClientName.trim(),
+          phone: newClientPhone.trim(),
+          email: "",
+          notes: newClientNotes.trim() || undefined
+        });
+        
+        if (newlyCreated && newlyCreated.id) {
+          setClientId(newlyCreated.id);
+          setShowQuickAdd(false);
+          setNewClientName("");
+          setNewClientPhone("");
+          setNewClientNotes("");
+        }
+      } catch (err) {
+        console.error("Error during quick client creation:", err);
+        alert("კლიენტის დამატება ვერ მოხერხდა");
+      }
+    }
+  };
 
   // Dynamically update default price when service changes (only for new bookings)
   const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -124,10 +163,21 @@ export default function BookingModal({
           {/* Client Select */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-indigo-500" />
-                კლიენტი <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-indigo-500" />
+                  კლიენტი <span className="text-rose-500">*</span>
+                </label>
+                {onAddClient && !bookingToEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAdd(!showQuickAdd)}
+                    className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                  >
+                    {showQuickAdd ? "დახურვა" : "+ ახალი"}
+                  </button>
+                )}
+              </div>
               <select
                 required
                 value={clientId}
@@ -164,6 +214,95 @@ export default function BookingModal({
               </select>
             </div>
           </div>
+
+          {/* Quick Client Add Panel */}
+          {showQuickAdd && (
+            <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3.5 animate-slide-up">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                <h4 className="font-bold text-[11px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-indigo-500" />
+                  ახალი კლიენტის სწრაფი შექმნა
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickAdd(false);
+                    setNewClientName("");
+                    setNewClientPhone("");
+                    setNewClientNotes("");
+                  }}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                    სახელი და გვარი <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required={showQuickAdd}
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    placeholder="მაგ: გიორგი კალანდაძე"
+                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                    ტელეფონის ნომერი <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    required={showQuickAdd}
+                    value={newClientPhone}
+                    onChange={(e) => setNewClientPhone(e.target.value)}
+                    placeholder="მაგ: 599 12 34 56"
+                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                  კომენტარი / შენიშვნა
+                </label>
+                <textarea
+                  value={newClientNotes}
+                  onChange={(e) => setNewClientNotes(e.target.value)}
+                  placeholder="მაგ: დამატებითი კომენტარი ან შენიშვნა"
+                  rows={2}
+                  className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickAdd(false);
+                    setNewClientName("");
+                    setNewClientPhone("");
+                    setNewClientNotes("");
+                  }}
+                  className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850 rounded-lg transition-colors cursor-pointer"
+                >
+                  გაუქმება
+                </button>
+                <button
+                  type="button"
+                  onClick={handleQuickAddClient}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  კლიენტის დამატება
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Staff Select */}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import CalendarView from "./components/CalendarView";
@@ -31,8 +32,11 @@ import {
   Client, 
   Service, 
   Staff, 
-  Booking 
+  Booking,
+  NotificationLog,
+  NotificationSettings
 } from "./types";
+import NotificationsView from "./components/NotificationsView";
 
 import { 
   initialBusinesses, 
@@ -205,6 +209,30 @@ export default function App() {
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+
+  // Notification logs & settings state
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() => {
+    const saved = localStorage.getItem("vxcrm_notification_settings");
+    if (saved) return JSON.parse(saved);
+    return {
+      smsEnabled: true,
+      emailEnabled: true,
+      smsTemplate: `გამარჯობა {client_name}, თქვენ წარმატებით ჩაეწერეთ სერვისზე: "{service_name}". თარიღი: {date}, დრო: {time}. ფასი: {price} ₾. სპეციალისტი: {staff_name}. მადლობა რომ ირჩევთ ჩვენს სერვისს!`,
+      emailTemplate: `გამარჯობა {client_name},\n\nთქვენ წარმატებით დარეგისტრირდით სერვისზე: "{service_name}".\n\nჯავშნის დეტალები:\n- თარიღი: {date}\n- დრო: {time}\n- სპეციალისტი: {staff_name}\n- მომსახურების ფასი: {price} ₾\n- დამატებითი კომენტარი: {notes}\n\nგელოდებით სიყვარულით!\n{business_name}`,
+    };
+  });
+  const [notificationLogs, setNotificationLogs] = useState<NotificationLog[]>(() => {
+    const saved = localStorage.getItem("vxcrm_notification_logs");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("vxcrm_notification_settings", JSON.stringify(notificationSettings));
+  }, [notificationSettings]);
+
+  useEffect(() => {
+    localStorage.setItem("vxcrm_notification_logs", JSON.stringify(notificationLogs));
+  }, [notificationLogs]);
 
   // Modal State
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -385,6 +413,302 @@ export default function App() {
     }
   };
 
+  const [demoToast, setDemoToast] = useState<{ title: string; recipient: string; message: string } | null>(null);
+
+  const showDemoToast = (title: string, recipient: string, message: string) => {
+    setDemoToast({ title, recipient, message });
+    // Play notification sound
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
+      oscillator.frequency.setValueAtTime(880.00, audioCtx.currentTime + 0.1); // A5
+      gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.3);
+    } catch (e) {
+      console.warn("Audio Context blocked:", e);
+    }
+  };
+
+  const enhanceErrorMessage = (msg: string): string => {
+    if (msg.includes("combination of 'To'") || msg.includes("combination of To and From") || msg.includes("combination of") && msg.includes("To") && msg.includes("From")) {
+      return `${msg} (მინიშნება: Twilio ბლოკავს აშშ-ს ნომრიდან საქართველოში (+995) SMS-ის გაგზავნას, რადგან ნაგულისხმევად საერთაშორისო გეო-ნებართვები გათიშულია. გადადით თქვენს Twilio-ს პანელში: Console ➔ Messaging ➔ Settings ➔ Geo-Permissions, მოძებნეთ ქვეყანა "Georgia", მონიშნეთ ის და დააჭირეთ შენახვას (Save). ამის შემდეგ SMS წარმატებით გამოიგზავნება!).`;
+    }
+    if (msg.includes("unverified") || msg.includes("Trial accounts cannot send messages") || msg.includes("verify") && msg.includes("verified")) {
+      return `${msg} (მინიშნება: Twilio-ს უფასო (Trial) ანგარიშიდან SMS-ის გაგზავნა შეგიძლიათ მხოლოდ თქვენსავე ვერიფიცირებულ ნომერზე (მაგალითად, იმ ნომერზე, რომლითაც Twilio-ზე დარეგისტრირდით). სხვის ნომერზე გასაგზავნად საჭიროა Twilio-ს ბალანსის შევსება და ანგარიშის განახლება (Upgrade), ან კონკრეტული მიმღები ნომრის წინასწარ ვერიფიკაცია Twilio-ს პანელში: twilio.com/user/account/phone-numbers/verified).`;
+    }
+    if (msg.includes("is not a Twilio phone number") || msg.includes("not a valid phone number") || msg.includes("Twilio phone number") || msg.includes("country mismatch")) {
+      return `${msg} (მინიშნება: გამგზავნის (From) ნომერი უნდა იყოს Twilio-სგან შეძენილი ვირტუალური ნომერი, მაგ. +12055550100 ან ალფანუმერული ID. თქვენი პირადი მობილური ნომერი არ გამოდგება, რადგან Twilio-ს არ აქვს უფლება მის სახელით გაგზავნოს შეტყობინება).`;
+    }
+    if (msg.includes("authenticate") || msg.includes("Credentials") || msg.includes("Account SID") || msg.includes("Auth Token") || msg.includes("Unauthorized")) {
+      return `${msg} (მინიშნება: გთხოვთ შეამოწმოთ Twilio SID და Auth Token, შეყვანილი გასაღებები არასწორია).`;
+    }
+    return msg;
+  };
+
+  const sendBookingNotifications = async (booking: Booking, isNew: boolean = true) => {
+    const client = clients.find(c => c.id === booking.clientId);
+    const service = services.find(s => s.id === booking.serviceId);
+    const staffMember = staff.find(st => st.id === booking.staffId);
+    
+    if (!client) return;
+
+    const formatMessage = (template: string) => {
+      return template
+        .replace(/{client_name}/g, client.name || "")
+        .replace(/{service_name}/g, service?.name || "")
+        .replace(/{date}/g, booking.date || "")
+        .replace(/{time}/g, booking.time || "")
+        .replace(/{price}/g, String(booking.price || ""))
+        .replace(/{staff_name}/g, staffMember?.name || "")
+        .replace(/{notes}/g, booking.notes || "არ არის")
+        .replace(/{business_name}/g, selectedBusiness?.name || "CRM ბიზნესი");
+    };
+
+    const sendTwilioSMS = async (to: string, body: string, settings: NotificationSettings) => {
+      if (!settings.twilioSid || !settings.twilioToken || !settings.twilioFrom) {
+        throw new Error("Twilio-ს გასაღებები არ არის შევსებული");
+      }
+      
+      let formattedTo = to.replace(/[\s\-\(\)]/g, "");
+      if (!formattedTo.startsWith("+")) {
+        if (formattedTo.startsWith("995")) {
+          formattedTo = "+" + formattedTo;
+        } else if (formattedTo.length === 9) {
+          formattedTo = "+995" + formattedTo;
+        } else {
+          formattedTo = "+" + formattedTo;
+        }
+      }
+
+      const response = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${settings.twilioSid}/Messages.json`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": "Basic " + btoa(`${settings.twilioSid}:${settings.twilioToken}`),
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: new URLSearchParams({
+            To: formattedTo,
+            From: settings.twilioFrom,
+            Body: body
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || `Twilio HTTP error! status: ${response.status}`);
+      }
+      return await response.json();
+    };
+
+    const sendEmailJS = async (settings: NotificationSettings, emailText: string) => {
+      if (!settings.emailjsServiceId || !settings.emailjsTemplateId || !settings.emailjsUserId) {
+        throw new Error("EmailJS-ის გასაღებები არ არის შევსებული");
+      }
+
+      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          service_id: settings.emailjsServiceId,
+          template_id: settings.emailjsTemplateId,
+          user_id: settings.emailjsUserId,
+          accessToken: settings.emailjsAccessToken || undefined,
+          template_params: {
+            to_email: client.email || "",
+            to_name: client.name || "",
+            message: emailText,
+            service_name: service?.name || "",
+            date: booking.date || "",
+            time: booking.time || "",
+            price: String(booking.price || ""),
+            staff_name: staffMember?.name || "",
+            notes: booking.notes || "არ არის",
+            business_name: selectedBusiness?.name || "ჩვენი ბიზნესი"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `EmailJS HTTP error! status: ${response.status}`);
+      }
+    };
+
+    // PROCESS SMS
+    if (notificationSettings.smsEnabled && client.phone) {
+      const smsBody = formatMessage(notificationSettings.smsTemplate);
+      const isTwilioConfigured = !!(notificationSettings.twilioSid && notificationSettings.twilioToken && notificationSettings.twilioFrom);
+      
+      const newLog: NotificationLog = {
+        id: `log_sms_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        businessId: selectedBusiness.id,
+        bookingId: booking.id,
+        clientName: client.name,
+        clientPhone: client.phone,
+        clientEmail: client.email || "",
+        serviceName: service?.name || "მომსახურება",
+        type: "sms",
+        status: isTwilioConfigured ? "გაგზავნილი" : "დემო_გაგზავნილი",
+        sentAt: new Date().toLocaleString("ka-GE", { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }),
+        message: smsBody
+      };
+
+      if (isTwilioConfigured) {
+        try {
+          await sendTwilioSMS(client.phone, smsBody, notificationSettings);
+        } catch (err: any) {
+          console.error("SMS Sending Error:", err);
+          newLog.status = "შეცდომა";
+          newLog.errorMessage = enhanceErrorMessage(err.message || "უცნობი შეცდომა Twilio-სთან");
+        }
+      } else {
+        showDemoToast("SMS შეტყობინება (სადემონსტრაციო)", client.phone, smsBody);
+      }
+
+      setNotificationLogs(prev => [newLog, ...prev]);
+    }
+
+    // PROCESS EMAIL
+    if (notificationSettings.emailEnabled && client.email) {
+      const emailBody = formatMessage(notificationSettings.emailTemplate);
+      const isEmailJSConfigured = !!(notificationSettings.emailjsServiceId && notificationSettings.emailjsTemplateId && notificationSettings.emailjsUserId);
+
+      const newLog: NotificationLog = {
+        id: `log_email_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        businessId: selectedBusiness.id,
+        bookingId: booking.id,
+        clientName: client.name,
+        clientPhone: client.phone,
+        clientEmail: client.email,
+        serviceName: service?.name || "მომსახურება",
+        type: "email",
+        status: isEmailJSConfigured ? "გაგზავნილი" : "დემო_გაგზავნილი",
+        sentAt: new Date().toLocaleString("ka-GE", { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }),
+        message: emailBody
+      };
+
+      if (isEmailJSConfigured) {
+        try {
+          await sendEmailJS(notificationSettings, emailBody);
+        } catch (err: any) {
+          console.error("Email Sending Error:", err);
+          newLog.status = "შეცდომა";
+          newLog.errorMessage = err.message || "უცნობი შეცდომა EmailJS-თან";
+        }
+      } else {
+        showDemoToast("Email შეტყობინება (სადემონსტრაციო)", client.email, emailBody);
+      }
+
+      setNotificationLogs(prev => [newLog, ...prev]);
+    }
+  };
+
+  const handleRetryNotification = async (logId: string): Promise<boolean> => {
+    const log = notificationLogs.find(l => l.id === logId);
+    if (!log) return false;
+
+    const isSMS = log.type === "sms";
+    const isTwilioConfigured = !!(notificationSettings.twilioSid && notificationSettings.twilioToken && notificationSettings.twilioFrom);
+    const isEmailJSConfigured = !!(notificationSettings.emailjsServiceId && notificationSettings.emailjsTemplateId && notificationSettings.emailjsUserId);
+
+    if (isSMS) {
+      if (!isTwilioConfigured) {
+        alert("გთხოვთ ჯერ შეავსოთ Twilio-ს პარამეტრები!");
+        return false;
+      }
+      try {
+        let formattedTo = log.clientPhone.replace(/[\s\-\(\)]/g, "");
+        if (!formattedTo.startsWith("+")) {
+          if (formattedTo.startsWith("995")) {
+            formattedTo = "+" + formattedTo;
+          } else if (formattedTo.length === 9) {
+            formattedTo = "+995" + formattedTo;
+          } else {
+            formattedTo = "+" + formattedTo;
+          }
+        }
+
+        const response = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${notificationSettings.twilioSid}/Messages.json`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": "Basic " + btoa(`${notificationSettings.twilioSid}:${notificationSettings.twilioToken}`),
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({
+              To: formattedTo,
+              From: notificationSettings.twilioFrom!,
+              Body: log.message
+            })
+          }
+        );
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.message || `Twilio HTTP error! status: ${response.status}`);
+        }
+
+        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "გაგზავნილი", errorMessage: undefined } : l));
+        return true;
+      } catch (err: any) {
+        console.error(err);
+        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "შეცდომა", errorMessage: enhanceErrorMessage(err.message || "შეცდომა") } : l));
+        return false;
+      }
+    } else {
+      if (!isEmailJSConfigured) {
+        alert("გთხოვთ ჯერ შეავსოთ EmailJS-ის პარამეტრები!");
+        return false;
+      }
+      try {
+        const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            service_id: notificationSettings.emailjsServiceId,
+            template_id: notificationSettings.emailjsTemplateId,
+            user_id: notificationSettings.emailjsUserId,
+            accessToken: notificationSettings.emailjsAccessToken || undefined,
+            template_params: {
+              to_email: log.clientEmail,
+              to_name: log.clientName,
+              message: log.message,
+              service_name: log.serviceName,
+              business_name: selectedBusiness?.name || "ჩვენი ბიზნესი"
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `EmailJS HTTP error! status: ${response.status}`);
+        }
+
+        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "გაგზავნილი", errorMessage: undefined } : l));
+        return true;
+      } catch (err: any) {
+        console.error(err);
+        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "შეცდომა", errorMessage: err.message || "შეცდომა" } : l));
+        return false;
+      }
+    }
+  };
+
   // Compute enriched clients dynamically
   const enrichedClients = useMemo(() => {
     return clients.map(client => {
@@ -458,6 +782,7 @@ export default function App() {
         }
       }
       setBookings(prev => [...prev, newBooking]);
+      sendBookingNotifications(newBooking, true);
     }
   };
 
@@ -491,7 +816,7 @@ export default function App() {
     setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
   };
 
-  const handleAddClient = async (clientData: Omit<Client, "id" | "totalBookings" | "totalSpent">) => {
+  const handleAddClient = async (clientData: Omit<Client, "id" | "totalBookings" | "totalSpent">): Promise<Client> => {
     const newClient: Client = {
       ...clientData,
       id: `cli_${Date.now()}`,
@@ -511,6 +836,7 @@ export default function App() {
     }
 
     setClients(prev => [...prev, newClient]);
+    return newClient;
   };
 
   const handleEditClient = async (updatedClient: Client) => {
@@ -1126,6 +1452,21 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
               onImportData={handleImportData}
             />
           )}
+
+          {currentTab === "notifications" && (
+            <NotificationsView
+              bookings={bookings}
+              clients={enrichedClients}
+              services={services}
+              staff={staff}
+              selectedBusinessId={selectedBusiness.id}
+              logs={notificationLogs}
+              settings={notificationSettings}
+              onSaveSettings={setNotificationSettings}
+              onClearLogs={() => setNotificationLogs([])}
+              onSendTestNotification={handleRetryNotification}
+            />
+          )}
         </div>
       </main>
 
@@ -1136,12 +1477,58 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
           setBookingToEdit(null);
         }}
         onSave={handleSaveBooking}
+        onAddClient={handleAddClient}
         bookingToEdit={bookingToEdit}
         clients={enrichedClients}
         services={services}
         staff={staff}
         selectedBusinessId={selectedBusiness.id}
       />
+
+      {/* Floating animated demo toast alerts */}
+      <AnimatePresence>
+        {demoToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            className="fixed bottom-6 right-6 z-[100] max-w-sm w-full bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-800 p-5 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 text-indigo-400 font-bold text-[11px] tracking-wide uppercase">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                </span>
+                {demoToast.title}
+              </div>
+              <button
+                onClick={() => setDemoToast(null)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[9px] font-bold text-slate-500 uppercase">ადრესატი:</div>
+              <div className="text-xs font-semibold text-slate-200">{demoToast.recipient}</div>
+            </div>
+            <div className="space-y-1 bg-slate-950 p-3 rounded-xl border border-slate-800">
+              <div className="text-[9px] font-bold text-slate-500 uppercase mb-1">შინაარსი:</div>
+              <p className="text-xs text-slate-300 font-medium whitespace-pre-wrap leading-relaxed font-sans">{demoToast.message}</p>
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setDemoToast(null)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                გასაგებია
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

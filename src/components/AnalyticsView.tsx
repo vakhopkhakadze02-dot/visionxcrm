@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   BarChart3, 
   Download, 
@@ -31,7 +31,9 @@ import {
   Tooltip, 
   Legend, 
   ResponsiveContainer,
-  Cell
+  Cell,
+  LineChart,
+  Line
 } from "recharts";
 import { Booking, Client, Service, Staff, Business } from "../types";
 
@@ -142,6 +144,39 @@ export default function AnalyticsView({
       "გაუქმებული": canceled,
     };
   }).sort((a, b) => b["ჯამური ჯავშნები"] - a["ჯამური ჯავშნები"]);
+
+  // Compute Daily Revenue over the last 30 days for Recharts Line Chart
+  const dailyRevenue30Days = useMemo(() => {
+    const referenceDate = new Date(); // Use current date (which is in 2026)
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(referenceDate);
+      d.setDate(referenceDate.getDate() - i);
+      const dateString = d.toISOString().split("T")[0]; // YYYY-MM-DD
+      
+      const dayNum = d.getDate();
+      const monthNames = ["იან", "ებ", "მარ", "აპრ", "მაი", "ივნ", "ივლ", "აგვ", "სექ", "ოქტ", "ნოე", "დეკ"];
+      const monthLabel = monthNames[d.getMonth()];
+      const label = `${dayNum} ${monthLabel}`;
+      
+      days.push({
+        date: dateString,
+        label: label
+      });
+    }
+
+    return days.map(day => {
+      const dayCompleted = businessBookings.filter(b => b.date === day.date && b.status === "დასრულებული");
+      const dayEarnings = dayCompleted.reduce((sum, b) => sum + b.price, 0);
+      const dayCount = dayCompleted.length;
+      return {
+        date: day.date,
+        label: day.label,
+        "შემოსავალი": dayEarnings,
+        "ჯავშნები": dayCount
+      };
+    });
+  }, [businessBookings]);
 
   // JSON Export CRM Backup
   const handleExportData = () => {
@@ -467,6 +502,108 @@ export default function AnalyticsView({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Recharts Line Chart: 30-Day Daily Revenue Trends */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between transition-colors">
+        <div className="mb-4">
+          <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 font-display flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            შემოსავლების დინამიკა (ბოლო 30 დღე)
+          </h3>
+          <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold mt-1">
+            ყოველდღიური შემოსავლის ტრენდი და დასრულებული ჯავშნების რაოდენობა ბოლო 30 დღის განმავლობაში
+          </p>
+        </div>
+
+        {dailyRevenue30Days.length === 0 || dailyRevenue30Days.every(d => d["შემოსავალი"] === 0) ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-2">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            <p className="text-slate-400 text-xs font-semibold">მონაცემები არასაკმარისია</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">ბოლო 30 დღის განმავლობაში დასრულებული ჯავშნები არ ფიქსირდება.</p>
+          </div>
+        ) : (
+          <div className="h-80 w-full mt-4 text-[11px] font-medium font-sans">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={dailyRevenue30Days}
+                margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-800" />
+                <XAxis 
+                  dataKey="label" 
+                  tickLine={false} 
+                  axisLine={false} 
+                  stroke="#94a3b8" 
+                  tick={{ fontSize: 10, fontWeight: 600 }}
+                />
+                <YAxis 
+                  tickLine={false} 
+                  axisLine={false} 
+                  stroke="#94a3b8" 
+                  tick={{ fontSize: 10, fontWeight: 600 }}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  cursor={{ stroke: '#6366f1', strokeWidth: 1, strokeDasharray: '4 4' }}
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const revenue = payload.find(p => p.name === "შემოსავალი")?.value;
+                      const count = payload.find(p => p.name === "ჯავშნები")?.value;
+                      return (
+                        <div className="bg-slate-900/95 dark:bg-slate-950/95 text-white p-3 rounded-xl border border-slate-800 shadow-xl text-xs space-y-1.5 backdrop-blur-xs">
+                          <p className="font-bold font-display text-[11px] border-b border-slate-800 pb-1 mb-1">{label}</p>
+                          <div className="flex items-center justify-between gap-6">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                              <span className="text-slate-400">შემოსავალი:</span>
+                            </div>
+                            <span className="font-mono font-bold text-slate-200">{revenue}₾</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-6">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                              <span className="text-slate-400">ჯავშნები:</span>
+                            </div>
+                            <span className="font-mono font-bold text-slate-200">{count}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Legend 
+                  verticalAlign="top" 
+                  height={36} 
+                  iconType="circle" 
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: 11, fontWeight: 600 }}
+                />
+                <Line 
+                  type="monotone"
+                  dataKey="შემოსავალი" 
+                  name="შემოსავალი"
+                  stroke="#10b981" 
+                  strokeWidth={2}
+                  dot={{ r: 2, strokeWidth: 1 }}
+                  activeDot={{ r: 5, strokeWidth: 0 }}
+                />
+                <Line 
+                  type="monotone"
+                  dataKey="ჯავშნები" 
+                  name="ჯავშნები"
+                  stroke="#6366f1" 
+                  strokeWidth={1.5}
+                  dot={{ r: 1 }}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Recharts Bar Chart: Bookings per Staff Member */}

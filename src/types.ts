@@ -57,3 +57,33 @@ export interface Booking {
   status: "დასრულებული" | "მოლოდინში" | "გაუქმებული";
   notes?: string;
 }
+
+export interface NotificationLog {
+  id: string;
+  businessId: string;
+  bookingId: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail: string;
+  serviceName: string;
+  type: "sms" | "email";
+  status: "გაგზავნილი" | "შეცდომა" | "დემო_გაგზავნილი";
+  errorMessage?: string;
+  sentAt: string;
+  message: string;
+}
+
+export interface NotificationSettings {
+  smsEnabled: boolean;
+  emailEnabled: boolean;
+  smsTemplate: string;
+  emailTemplate: string;
+  twilioSid?: string;
+  twilioToken?: string;
+  twilioFrom?: string;
+  emailjsServiceId?: string;
+  emailjsTemplateId?: string;
+  emailjsUserId?: string;
+  emailjsAccessToken?: string;
+}
+
