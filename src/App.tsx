@@ -34,9 +34,11 @@ import {
   Staff, 
   Booking,
   NotificationLog,
-  NotificationSettings
+  NotificationSettings,
+  Followup
 } from "./types";
 import NotificationsView from "./components/NotificationsView";
+import FollowupsView from "./components/FollowupsView";
 
 import { 
   initialBusinesses, 
@@ -209,6 +211,14 @@ export default function App() {
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [followups, setFollowups] = useState<Followup[]>(() => {
+    const saved = localStorage.getItem("vxcrm_followups");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("vxcrm_followups", JSON.stringify(followups));
+  }, [followups]);
 
   // Notification logs & settings state
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() => {
@@ -395,6 +405,7 @@ export default function App() {
       setServices([]);
       setStaff([]);
       setBookings([]);
+      setFollowups([]);
     } else {
       // Load standard Georgian mockup data
       const savedBus = localStorage.getItem("vxcrm_businesses");
@@ -403,6 +414,7 @@ export default function App() {
       const savedSer = localStorage.getItem("vxcrm_services");
       const savedStf = localStorage.getItem("vxcrm_staff");
       const savedBok = localStorage.getItem("vxcrm_bookings");
+      const savedFol = localStorage.getItem("vxcrm_followups");
 
       setBusinesses(savedBus ? JSON.parse(savedBus) : initialBusinesses);
       setSelectedBusiness(savedSel ? JSON.parse(savedSel) : (savedBus ? JSON.parse(savedBus)[0] : initialBusinesses[0]));
@@ -410,6 +422,42 @@ export default function App() {
       setServices(savedSer ? JSON.parse(savedSer) : initialServices);
       setStaff(savedStf ? JSON.parse(savedStf) : initialStaff);
       setBookings(savedBok ? JSON.parse(savedBok) : initialBookings);
+
+      if (savedFol) {
+        setFollowups(JSON.parse(savedFol));
+      } else {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split("T")[0];
+        
+        const initialFollowups: Followup[] = [
+          {
+            id: "initial_f1",
+            businessId: savedBus ? JSON.parse(savedBus)[0]?.id || "bus_local" : initialBusinesses[0]?.id || "bus_local",
+            clientName: "მარიამ ბერიძე",
+            clientPhone: "599123456",
+            date: tomorrowStr,
+            time: "11:30",
+            type: "call",
+            topic: "ხვალ გასაწევ მომსახურებაზე დადასტურება",
+            status: "მოლოდინში",
+            notes: "სთხოვა რომ ზუსტად 11:30-ზე დავურეკოთ"
+          },
+          {
+            id: "initial_f2",
+            businessId: savedBus ? JSON.parse(savedBus)[0]?.id || "bus_local" : initialBusinesses[0]?.id || "bus_local",
+            clientName: "ლევან კალანდაძე",
+            clientPhone: "555987654",
+            date: tomorrowStr,
+            time: "15:00",
+            type: "message",
+            topic: "შემდეგი ვიზიტის შეთავაზება",
+            status: "მოლოდინში",
+            notes: "WhatsApp-ით გაგზავნა"
+          }
+        ];
+        setFollowups(initialFollowups);
+      }
     }
   };
 
@@ -748,6 +796,27 @@ export default function App() {
 
     setBusinesses(prev => [...prev, newBus]);
     setSelectedBusiness(newBus);
+  };
+
+  const handleAddFollowup = (followupData: Omit<Followup, "id" | "businessId">) => {
+    const newFollowup: Followup = {
+      ...followupData,
+      id: `fol_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      businessId: selectedBusiness.id
+    };
+    setFollowups(prev => [newFollowup, ...prev]);
+  };
+
+  const handleUpdateFollowupStatus = (id: string, status: Followup["status"]) => {
+    setFollowups(prev => prev.map(f => f.id === id ? { ...f, status } : f));
+  };
+
+  const handleDeleteFollowup = (id: string) => {
+    setFollowups(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleEditFollowup = (edited: Followup) => {
+    setFollowups(prev => prev.map(f => f.id === edited.id ? edited : f));
   };
 
   const handleSaveBooking = async (bookingData: Omit<Booking, "id"> & { id?: string }) => {
@@ -1465,6 +1534,17 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
               onSaveSettings={setNotificationSettings}
               onClearLogs={() => setNotificationLogs([])}
               onSendTestNotification={handleRetryNotification}
+            />
+          )}
+
+          {currentTab === "followups" && (
+            <FollowupsView
+              followups={followups.filter(f => f.businessId === selectedBusiness.id)}
+              clients={clients}
+              onAddFollowup={handleAddFollowup}
+              onUpdateFollowupStatus={handleUpdateFollowupStatus}
+              onDeleteFollowup={handleDeleteFollowup}
+              onEditFollowup={handleEditFollowup}
             />
           )}
         </div>

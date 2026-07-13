@@ -87,3 +87,17 @@ export interface NotificationSettings {
   emailjsAccessToken?: string;
 }
 
+export interface Followup {
+  id: string;
+  businessId: string;
+  clientId?: string;
+  clientName: string;
+  clientPhone: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  type: "call" | "message"; // call or message
+  topic: string; // e.g. "ჯავშნის დადასტურება"
+  status: "მოლოდინში" | "დასრულებული" | "გაუქმებული";
+  notes?: string;
+}
+

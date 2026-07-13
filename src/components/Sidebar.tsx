@@ -18,7 +18,8 @@ import {
   Check,
   Sun,
   Moon,
-  Mail
+  Mail,
+  Notebook
 } from "lucide-react";
 import { Business } from "../types";
 
@@ -96,6 +97,7 @@ export default function Sidebar({
     { id: "services", label: "სერვისები", icon: Sparkles },
     { id: "staff", label: "თანამშრომლები", icon: UserSquare2 },
     { id: "notifications", label: "შეტყობინებები", icon: Mail },
+    { id: "followups", label: "ზარები / შეხსენებები", icon: Notebook },
     { id: "analytics", label: "ფინანსები", icon: BarChart3 }
   ];
 
