@@ -199,18 +199,45 @@ export default function App() {
   const [copied, setCopied] = useState<boolean>(false);
 
   // State lists
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [selectedBusiness, setSelectedBusiness] = useState<Business>({
-    id: "bus_loading",
-    name: "იტვირთება...",
-    ownerName: "...",
-    role: "მფლობელი",
-    logoColor: "bg-slate-300"
+  const [businesses, setBusinesses] = useState<Business[]>(() => {
+    const saved = localStorage.getItem("vxcrm_businesses");
+    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
+    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialBusinesses : []);
   });
-  const [clients, setClients] = useState<Client[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [selectedBusiness, setSelectedBusiness] = useState<Business>(() => {
+    const saved = localStorage.getItem("vxcrm_selected_business");
+    if (saved) return JSON.parse(saved);
+    const savedBus = localStorage.getItem("vxcrm_businesses");
+    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
+    const parsedBus = savedBus ? JSON.parse(savedBus) : (isInitiallyLocal ? initialBusinesses : []);
+    return parsedBus[0] || {
+      id: "bus_loading",
+      name: "იტვირთება...",
+      ownerName: "...",
+      role: "მფლობელი",
+      logoColor: "bg-slate-300"
+    };
+  });
+  const [clients, setClients] = useState<Client[]>(() => {
+    const saved = localStorage.getItem("vxcrm_clients");
+    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
+    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialClients : []);
+  });
+  const [services, setServices] = useState<Service[]>(() => {
+    const saved = localStorage.getItem("vxcrm_services");
+    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
+    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialServices : []);
+  });
+  const [staff, setStaff] = useState<Staff[]>(() => {
+    const saved = localStorage.getItem("vxcrm_staff");
+    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
+    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialStaff : []);
+  });
+  const [bookings, setBookings] = useState<Booking[]>(() => {
+    const saved = localStorage.getItem("vxcrm_bookings");
+    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
+    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialBookings : []);
+  });
   const [followups, setFollowups] = useState<Followup[]>(() => {
     const saved = localStorage.getItem("vxcrm_followups");
     return saved ? JSON.parse(saved) : [];
