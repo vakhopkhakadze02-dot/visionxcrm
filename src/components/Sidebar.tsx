@@ -19,7 +19,8 @@ import {
   Sun,
   Moon,
   Mail,
-  Notebook
+  Notebook,
+  Layers
 } from "lucide-react";
 import { Business } from "../types";
 
@@ -94,6 +95,7 @@ export default function Sidebar({
     { id: "dashboard", label: "მთავარი", icon: LayoutDashboard },
     { id: "calendar", label: "კალენდარი", icon: Calendar },
     { id: "clients", label: "კლიენტები", icon: Users },
+    { id: "pipeline", label: "CRM მილსადენი", icon: Layers },
     { id: "services", label: "სერვისები", icon: Sparkles },
     { id: "staff", label: "თანამშრომლები", icon: UserSquare2 },
     { id: "notifications", label: "შეტყობინებები", icon: Mail },

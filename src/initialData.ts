@@ -49,7 +49,8 @@ export const initialClients: Client[] = [
     email: "nikoloz.b@gmail.com",
     totalBookings: 12,
     totalSpent: 420,
-    notes: "ურჩევნია ყავა უშაქროდ. თმის შეჭრა მხოლოდ ანასთან."
+    notes: "ურჩევნია ყავა უშაქროდ. თმის შეჭრა მხოლოდ ანასთან.",
+    tag: "წარმატებული გარიგება"
   },
   {
     id: "cli_2",
@@ -58,7 +59,8 @@ export const initialClients: Client[] = [
     email: "mariam.k@gmail.com",
     totalBookings: 8,
     totalSpent: 320,
-    notes: "მგრძნობიარე კანი, საჭიროებს ნატურალურ კოსმეტიკას."
+    notes: "მგრძნობიარე კანი, საჭიროებს ნატურალურ კოსმეტიკას.",
+    tag: "მუშაობის პროცესში"
   },
   {
     id: "cli_3",
@@ -67,7 +69,8 @@ export const initialClients: Client[] = [
     email: "giorgi.m@yahoo.com",
     totalBookings: 5,
     totalSpent: 100,
-    notes: "წვერის კორექცია 2 კვირაში ერთხელ."
+    notes: "წვერის კორექცია 2 კვირაში ერთხელ.",
+    tag: "წარუმატებლად დახურული"
   },
   {
     id: "cli_4",
@@ -76,7 +79,8 @@ export const initialClients: Client[] = [
     email: "lika.sh@gmail.com",
     totalBookings: 15,
     totalSpent: 850,
-    notes: "მუდმივი კლიენტი. იკეთებს მანიკურსა და თმის შეღებვას."
+    notes: "მუდმივი კლიენტი. იკეთებს მანიკურსა და თმის შეღებვას.",
+    tag: "წარმატებული გარიგება"
   },
   {
     id: "cli_5",
@@ -85,7 +89,8 @@ export const initialClients: Client[] = [
     email: "david.l@gmail.com",
     totalBookings: 3,
     totalSpent: 105,
-    notes: "თმის შეჭრა ყოველი თვის ბოლოს."
+    notes: "თმის შეჭრა ყოველი თვის ბოლოს.",
+    tag: "მუშაობის პროცესში"
   },
   {
     id: "cli_6",
@@ -94,7 +99,8 @@ export const initialClients: Client[] = [
     email: "nino.t@gmail.com",
     totalBookings: 6,
     totalSpent: 270,
-    notes: "პედიკური და კოსმეტოლოგიური პროცედურები."
+    notes: "პედიკური და კოსმეტოლოგიური პროცედურები.",
+    tag: "წარმატებული გარიგება"
   }
 ];
 

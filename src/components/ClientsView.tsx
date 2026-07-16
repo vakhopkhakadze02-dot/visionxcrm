@@ -7,6 +7,24 @@ import React, { useState } from "react";
 import { Search, Plus, UserPlus, Phone, Mail, FileText, Trash2, Edit2, Wallet, CalendarRange, Download, FileSpreadsheet } from "lucide-react";
 import { Client } from "../types";
 
+export const tagStyles: Record<string, { bg: string, dot: string, label: string }> = {
+  "წარმატებული გარიგება": {
+    bg: "bg-emerald-50 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30",
+    dot: "bg-emerald-500",
+    label: "წარმატებული"
+  },
+  "მუშაობის პროცესში": {
+    bg: "bg-amber-50 dark:bg-amber-950/25 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-900/30",
+    dot: "bg-amber-500",
+    label: "მიმდინარე"
+  },
+  "წარუმატებლად დახურული": {
+    bg: "bg-rose-50 dark:bg-rose-950/25 text-rose-700 dark:text-rose-400 border-rose-100 dark:border-rose-900/30",
+    dot: "bg-rose-500",
+    label: "წარუმატებელი"
+  }
+};
+
 interface ClientsViewProps {
   clients: Client[];
   onAddClient: (client: Omit<Client, "id" | "totalBookings" | "totalSpent">) => void;
@@ -21,6 +39,7 @@ export default function ClientsView({
   onDeleteClient
 }: ClientsViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string>("all");
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
 
@@ -56,6 +75,7 @@ export default function ClientsView({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [tag, setTag] = useState<string>("მუშაობის პროცესში");
 
   const handleOpenAdd = () => {
     setEditingClient(null);
@@ -63,6 +83,7 @@ export default function ClientsView({
     setPhone("");
     setEmail("");
     setNotes("");
+    setTag("მუშაობის პროცესში");
     setShowModal(true);
   };
 
@@ -72,6 +93,7 @@ export default function ClientsView({
     setPhone(client.phone);
     setEmail(client.email);
     setNotes(client.notes || "");
+    setTag(client.tag || "მუშაობის პროცესში");
     setShowModal(true);
   };
 
@@ -88,25 +110,29 @@ export default function ClientsView({
         name,
         phone,
         email,
-        notes: notes.trim() || undefined
+        notes: notes.trim() || undefined,
+        tag: tag || undefined
       });
     } else {
       onAddClient({
         name,
         phone,
         email,
-        notes: notes.trim() || undefined
+        notes: notes.trim() || undefined,
+        tag: tag || undefined
       });
     }
     setShowModal(false);
   };
 
-  // Filter clients based on search query
-  const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone.includes(searchQuery) ||
-    c.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter clients based on search query and tag filter
+  const filteredClients = clients.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.phone.includes(searchQuery) ||
+      c.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesTag = selectedTagFilter === "all" || c.tag === selectedTagFilter;
+    return matchesSearch && matchesTag;
+  });
 
   return (
     <div className="space-y-5">
@@ -140,16 +166,64 @@ export default function ClientsView({
       </div>
 
       {/* Search Bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs">
-        <div className="relative max-w-md">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             placeholder="მოძებნეთ კლიენტი სახელით, ტელეფონით ან მეილით..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
+            className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-200 dark:bg-slate-950"
           />
+        </div>
+
+        {/* Tag Filters */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider mr-1">სტატუსის ფილტრი:</span>
+          <button
+            onClick={() => setSelectedTagFilter("all")}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+              selectedTagFilter === "all"
+                ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700"
+                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
+            }`}
+          >
+            ყველა
+          </button>
+          <button
+            onClick={() => setSelectedTagFilter("წარმატებული გარიგება")}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+              selectedTagFilter === "წარმატებული გარიგება"
+                ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800"
+                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            წარმატებული
+          </button>
+          <button
+            onClick={() => setSelectedTagFilter("მუშაობის პროცესში")}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+              selectedTagFilter === "მუშაობის პროცესში"
+                ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800"
+                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            მიმდინარე
+          </button>
+          <button
+            onClick={() => setSelectedTagFilter("წარუმატებლად დახურული")}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+              selectedTagFilter === "წარუმატებლად დახურული"
+                ? "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800"
+                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+            წარუმატებელი
+          </button>
         </div>
       </div>
 
@@ -187,9 +261,17 @@ export default function ClientsView({
                       <h3 className="font-bold text-slate-800 text-xs leading-tight">
                         {client.name}
                       </h3>
-                      <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
-                        ID: {client.id.replace("cli_", "#")}
-                      </span>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-[10px] text-slate-400 font-semibold">
+                          ID: {client.id.replace("cli_", "#")}
+                        </span>
+                        {client.tag && tagStyles[client.tag] && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold border flex items-center gap-1 ${tagStyles[client.tag].bg}`}>
+                            <span className={`w-1 h-1 rounded-full ${tagStyles[client.tag].dot}`} />
+                            {tagStyles[client.tag].label}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   
@@ -324,6 +406,50 @@ export default function ClientsView({
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  CRM სტატუსი (თეგი)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTag("წარმატებული გარიგება")}
+                    className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      tag === "წარმატებული გარიგება"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-500 shadow-xs scale-[1.02] dark:bg-emerald-950/25 dark:text-emerald-400"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800"
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>წარმატებული</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTag("მუშაობის პროცესში")}
+                    className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      tag === "მუშაობის პროცესში"
+                        ? "bg-amber-50 text-amber-700 border-amber-500 shadow-xs scale-[1.02] dark:bg-amber-950/25 dark:text-amber-400"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800"
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span>მიმდინარე</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTag("წარუმატებლად დახურული")}
+                    className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      tag === "წარუმატებლად დახურული"
+                        ? "bg-rose-50 text-rose-700 border-rose-500 shadow-xs scale-[1.02] dark:bg-rose-950/25 dark:text-rose-400"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800"
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    <span>წარუმატებელი</span>
+                  </button>
+                </div>
               </div>
 
               <div>

@@ -23,6 +23,7 @@ export interface Client {
   totalBookings: number;
   totalSpent: number;
   notes?: string;
+  tag?: string;
 }
 
 export interface Service {

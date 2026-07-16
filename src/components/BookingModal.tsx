@@ -10,13 +10,14 @@ import { Booking, Client, Service, Staff } from "../types";
 interface BookingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (booking: Omit<Booking, "id"> & { id?: string }) => void;
+  onSave: (booking: Omit<Booking, "id"> & { id?: string }, shouldSendSms?: boolean) => void;
   onAddClient?: (client: Omit<Client, "id" | "totalBookings" | "totalSpent">) => Promise<Client>;
   bookingToEdit?: Booking | null;
   clients: Client[];
   services: Service[];
   staff: Staff[];
   selectedBusinessId: string;
+  defaultDate?: string;
 }
 
 export default function BookingModal({
@@ -28,16 +29,21 @@ export default function BookingModal({
   clients,
   services,
   staff,
-  selectedBusinessId
+  selectedBusinessId,
+  defaultDate
 }: BookingModalProps) {
   const [clientId, setClientId] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [staffId, setStaffId] = useState("");
-  const [date, setDate] = useState("2026-07-12");
+  const [date, setDate] = useState(defaultDate || "2026-07-12");
   const [time, setTime] = useState("12:00");
   const [price, setPrice] = useState<number>(0);
   const [status, setStatus] = useState<"დასრულებული" | "მოლოდინში" | "გაუქმებული">("მოლოდინში");
   const [notes, setNotes] = useState("");
+  const [sendSms, setSendSms] = useState(true);
+
+  const selectedClient = clients.find(c => c.id === clientId);
+  const clientPhone = selectedClient?.phone || "";
 
   // Quick Client Add states
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -56,20 +62,22 @@ export default function BookingModal({
       setPrice(bookingToEdit.price);
       setStatus(bookingToEdit.status);
       setNotes(bookingToEdit.notes || "");
+      setSendSms(true);
       setShowQuickAdd(false);
     } else {
       // Set defaults for new booking
       setClientId(clients[0]?.id || "");
       setServiceId(services[0]?.id || "");
       setStaffId(staff[0]?.id || "");
-      setDate("2026-07-12");
+      setDate(defaultDate || "2026-07-12");
       setTime("12:00");
       setPrice(services[0]?.price || 0);
       setStatus("მოლოდინში");
       setNotes("");
+      setSendSms(true);
       setShowQuickAdd(false);
     }
-  }, [bookingToEdit, isOpen, clients, services, staff]);
+  }, [bookingToEdit, isOpen, clients, services, staff, defaultDate]);
 
   const handleQuickAddClient = async () => {
     if (!newClientName.trim() || !newClientPhone.trim()) {
@@ -119,6 +127,17 @@ export default function BookingModal({
       return;
     }
 
+    const selectedClient = clients.find(c => c.id === clientId);
+    const clientPhone = selectedClient?.phone || "";
+
+    let shouldTriggerSms = false;
+    if (sendSms && clientPhone) {
+      const confirmSend = confirm(`გსურთ თუ არა გაიგზავნოს შეტყობინება ნომერზე: ${clientPhone}?`);
+      if (confirmSend) {
+        shouldTriggerSms = true;
+      }
+    }
+
     onSave({
       ...(bookingToEdit && { id: bookingToEdit.id }),
       businessId: selectedBusinessId,
@@ -130,7 +149,7 @@ export default function BookingModal({
       price: Number(price),
       status,
       notes: notes.trim() || undefined
-    });
+    }, shouldTriggerSms);
     onClose();
   };
 
@@ -414,6 +433,36 @@ export default function BookingModal({
               onChange={(e) => setNotes(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
             />
+          </div>
+
+          {/* Notification Checkbox */}
+          <div className="p-3.5 bg-indigo-50/50 dark:bg-slate-800/50 border border-indigo-100/60 dark:border-slate-800/80 rounded-xl flex items-start gap-3">
+            <div className="flex items-center h-5">
+              <input
+                type="checkbox"
+                id="send-sms-notification"
+                checked={sendSms}
+                onChange={(e) => setSendSms(e.target.checked)}
+                className="h-4.5 w-4.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 rounded cursor-pointer bg-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="send-sms-notification" className="text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer flex items-center gap-1.5 flex-wrap">
+                გაიგზავნოს შეტყობინება ნომერზე
+                {clientPhone ? (
+                  <span className="text-indigo-600 dark:text-indigo-400 font-mono font-extrabold bg-indigo-50 dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-100/50 dark:border-slate-800">
+                    {clientPhone}
+                  </span>
+                ) : (
+                  <span className="text-rose-500 font-bold text-[11px] bg-rose-50 dark:bg-rose-950/20 px-2 py-0.5 rounded border border-rose-100 dark:border-rose-900/40">
+                    ტელეფონი არ არის მითითებული
+                  </span>
+                )}
+              </label>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
+                ჯავშნის შენახვისას სისტემა გკითხავთ დასტურს და გააგზავნის დეტალურ შეტყობინებას ამ ნომერზე.
+              </p>
+            </div>
           </div>
         </form>
 

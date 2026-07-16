@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import CalendarView from "./components/CalendarView";
 import ClientsView from "./components/ClientsView";
+import PipelineView from "./components/PipelineView";
 import ServicesView from "./components/ServicesView";
 import StaffView from "./components/StaffView";
 import AnalyticsView from "./components/AnalyticsView";
@@ -81,7 +82,8 @@ const mapClientFromDB = (c: any): Client => ({
   email: c.email || "",
   notes: c.notes || "",
   totalBookings: 0,
-  totalSpent: 0
+  totalSpent: 0,
+  tag: c.tag || undefined
 });
 
 const mapClientToDB = (c: Client, userId: string) => ({
@@ -90,7 +92,8 @@ const mapClientToDB = (c: Client, userId: string) => ({
   name: c.name,
   phone: c.phone,
   email: c.email || null,
-  notes: c.notes || null
+  notes: c.notes || null,
+  tag: c.tag || null
 });
 
 const mapServiceFromDB = (s: any): Service => ({
@@ -160,6 +163,35 @@ const mapBookingToDB = (bk: Booking, userId: string) => ({
   price: bk.price,
   status: bk.status,
   notes: bk.notes || null
+});
+
+const mapFollowupFromDB = (f: any): Followup => ({
+  id: f.id,
+  businessId: f.business_id,
+  clientId: f.client_id || undefined,
+  clientName: f.client_name,
+  clientPhone: f.client_phone,
+  date: f.date,
+  time: f.time,
+  type: f.type as "call" | "message",
+  topic: f.topic,
+  status: (f.status === "დასრულებული" || f.status === "მოლოდინში" || f.status === "გაუქმებული" ? f.status : "მოლოდინში") as any,
+  notes: f.notes || ""
+});
+
+const mapFollowupToDB = (f: Followup, userId: string) => ({
+  id: f.id,
+  user_id: userId,
+  business_id: f.businessId,
+  client_id: f.clientId || null,
+  client_name: f.clientName,
+  client_phone: f.clientPhone,
+  date: f.date,
+  time: f.time,
+  type: f.type,
+  topic: f.topic,
+  status: f.status,
+  notes: f.notes || null
 });
 
 export default function App() {
@@ -274,6 +306,7 @@ export default function App() {
   // Modal State
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [bookingToEdit, setBookingToEdit] = useState<Booking | null>(null);
+  const [bookingDefaultDate, setBookingDefaultDate] = useState<string>("2026-07-12");
 
   // Sync session and auth states
   useEffect(() => {
@@ -388,6 +421,24 @@ export default function App() {
       setServices(loadedServices);
       setStaff(loadedStaff);
       setBookings(loadedBookings);
+
+      // Safe fetch for followups to avoid breaking if table is not created yet
+      let loadedFollowups: Followup[] = [];
+      try {
+        const folRes = await supabase.from("followups").select("*").eq("user_id", userId);
+        if (folRes.error) {
+          console.warn("Followups table might not exist in Supabase yet. Error:", folRes.error);
+          const saved = localStorage.getItem("vxcrm_followups");
+          loadedFollowups = saved ? JSON.parse(saved) : [];
+        } else {
+          loadedFollowups = folRes.data.map(mapFollowupFromDB);
+        }
+      } catch (folErr) {
+        console.warn("Error fetching followups from Supabase, falling back to local storage:", folErr);
+        const saved = localStorage.getItem("vxcrm_followups");
+        loadedFollowups = saved ? JSON.parse(saved) : [];
+      }
+      setFollowups(loadedFollowups);
 
       if (loadedBusinesses.length > 0) {
         setSelectedBusiness(loadedBusinesses[0]);
@@ -527,7 +578,7 @@ export default function App() {
     return msg;
   };
 
-  const sendBookingNotifications = async (booking: Booking, isNew: boolean = true) => {
+  const sendBookingNotifications = async (booking: Booking, isNew: boolean = true, forceSendSms?: boolean) => {
     const client = clients.find(c => c.id === booking.clientId);
     const service = services.find(s => s.id === booking.serviceId);
     const staffMember = staff.find(st => st.id === booking.staffId);
@@ -622,7 +673,8 @@ export default function App() {
     };
 
     // PROCESS SMS
-    if (notificationSettings.smsEnabled && client.phone) {
+    const isSmsEnabled = forceSendSms !== undefined ? forceSendSms : notificationSettings.smsEnabled;
+    if (isSmsEnabled && client.phone) {
       const smsBody = formatMessage(notificationSettings.smsTemplate);
       const isTwilioConfigured = !!(notificationSettings.twilioSid && notificationSettings.twilioToken && notificationSettings.twilioFrom);
       
@@ -825,28 +877,73 @@ export default function App() {
     setSelectedBusiness(newBus);
   };
 
-  const handleAddFollowup = (followupData: Omit<Followup, "id" | "businessId">) => {
+  const handleAddFollowup = async (followupData: Omit<Followup, "id" | "businessId">) => {
     const newFollowup: Followup = {
       ...followupData,
       id: `fol_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       businessId: selectedBusiness.id
     };
+
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase
+          .from("followups")
+          .insert(mapFollowupToDB(newFollowup, session.user.id));
+        if (error) throw error;
+      } catch (err) {
+        console.warn("Error creating followup in Supabase:", err);
+      }
+    }
+
     setFollowups(prev => [newFollowup, ...prev]);
   };
 
-  const handleUpdateFollowupStatus = (id: string, status: Followup["status"]) => {
+  const handleUpdateFollowupStatus = async (id: string, status: Followup["status"]) => {
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase
+          .from("followups")
+          .update({ status })
+          .eq("id", id);
+        if (error) throw error;
+      } catch (err) {
+        console.warn("Error updating followup status in Supabase:", err);
+      }
+    }
     setFollowups(prev => prev.map(f => f.id === id ? { ...f, status } : f));
   };
 
-  const handleDeleteFollowup = (id: string) => {
+  const handleDeleteFollowup = async (id: string) => {
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase
+          .from("followups")
+          .delete()
+          .eq("id", id);
+        if (error) throw error;
+      } catch (err) {
+        console.warn("Error deleting followup in Supabase:", err);
+      }
+    }
     setFollowups(prev => prev.filter(f => f.id !== id));
   };
 
-  const handleEditFollowup = (edited: Followup) => {
+  const handleEditFollowup = async (edited: Followup) => {
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase
+          .from("followups")
+          .update(mapFollowupToDB(edited, session.user.id))
+          .eq("id", edited.id);
+        if (error) throw error;
+      } catch (err) {
+        console.warn("Error updating followup in Supabase:", err);
+      }
+    }
     setFollowups(prev => prev.map(f => f.id === edited.id ? edited : f));
   };
 
-  const handleSaveBooking = async (bookingData: Omit<Booking, "id"> & { id?: string }) => {
+  const handleSaveBooking = async (bookingData: Omit<Booking, "id"> & { id?: string }, shouldSendSms?: boolean) => {
     if (bookingData.id) {
       // Edit
       if (!isLocalMode && session?.user?.id) {
@@ -860,7 +957,11 @@ export default function App() {
           console.warn("Error updating booking in Supabase:", err);
         }
       }
-      setBookings(prev => prev.map(b => b.id === bookingData.id ? (bookingData as Booking) : b));
+      const updatedBooking = bookingData as Booking;
+      setBookings(prev => prev.map(b => b.id === bookingData.id ? updatedBooking : b));
+      if (shouldSendSms) {
+        sendBookingNotifications(updatedBooking, false, true);
+      }
     } else {
       // Add
       const newBooking: Booking = {
@@ -878,7 +979,7 @@ export default function App() {
         }
       }
       setBookings(prev => [...prev, newBooking]);
-      sendBookingNotifications(newBooking, true);
+      sendBookingNotifications(newBooking, true, shouldSendSms);
     }
   };
 
@@ -1125,21 +1226,15 @@ export default function App() {
 
   // Modal helpers
   const handleOpenNewBooking = () => {
+    setBookingDefaultDate("2026-07-12");
     setBookingToEdit(null);
     setBookingModalOpen(true);
   };
 
   const handleOpenNewBookingWithDate = (date: string) => {
+    setBookingDefaultDate(date);
     setBookingToEdit(null);
     setBookingModalOpen(true);
-    setTimeout(() => {
-      const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
-      if (dateInput) {
-        dateInput.value = date;
-        const event = new Event("input", { bubbles: true });
-        dateInput.dispatchEvent(event);
-      }
-    }, 50);
   };
 
   const handleOpenEditBooking = (booking: Booking) => {
@@ -1219,13 +1314,28 @@ CREATE TABLE IF NOT EXISTS staff (
 CREATE TABLE IF NOT EXISTS bookings (
   id TEXT PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  business_id TEXT REFERENCES businesses(id) ON DELETE CASCADE,
-  client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
-  service_id TEXT REFERENCES services(id) ON DELETE CASCADE,
-  staff_id TEXT REFERENCES staff(id) ON DELETE CASCADE,
+  business_id TEXT,
+  client_id TEXT,
+  service_id TEXT,
+  staff_id TEXT,
   date TEXT NOT NULL,
   time TEXT NOT NULL,
   price NUMERIC NOT NULL,
+  status TEXT DEFAULT 'მოლოდინში',
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS followups (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  business_id TEXT,
+  client_id TEXT,
+  client_name TEXT NOT NULL,
+  client_phone TEXT NOT NULL,
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
+  type TEXT NOT NULL,
+  topic TEXT NOT NULL,
   status TEXT DEFAULT 'მოლოდინში',
   notes TEXT
 );
@@ -1236,13 +1346,26 @@ ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE followups ENABLE ROW LEVEL SECURITY;
 
 -- 3. Create RLS Policies
+DROP POLICY IF EXISTS "Users can manage their own businesses" ON businesses;
 CREATE POLICY "Users can manage their own businesses" ON businesses FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own clients" ON clients;
 CREATE POLICY "Users can manage their own clients" ON clients FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own services" ON services;
 CREATE POLICY "Users can manage their own services" ON services FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own staff" ON staff;
 CREATE POLICY "Users can manage their own staff" ON staff FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
+
+DROP POLICY IF EXISTS "Users can manage their own bookings" ON bookings;
+CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own followups" ON followups;
+CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
 
     const handleCopySql = () => {
       navigator.clipboard.writeText(sqlCode);
@@ -1519,6 +1642,14 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
             />
           )}
 
+          {currentTab === "pipeline" && (
+            <PipelineView 
+              clients={enrichedClients}
+              onEditClient={handleEditClient}
+              onAddClient={handleAddClient}
+            />
+          )}
+
           {currentTab === "services" && (
             <ServicesView 
               services={services}
@@ -1590,6 +1721,7 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
         services={services}
         staff={staff}
         selectedBusinessId={selectedBusiness.id}
+        defaultDate={bookingDefaultDate}
       />
 
       {/* Floating animated demo toast alerts */}
