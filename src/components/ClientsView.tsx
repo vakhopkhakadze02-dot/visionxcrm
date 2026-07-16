@@ -137,9 +137,9 @@ export default function ClientsView({
   return (
     <div className="space-y-5">
       {/* Top action section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-5">
         <div>
-          <h1 className="font-display font-bold text-xl text-slate-900 tracking-tight">
+          <h1 className="font-display font-bold text-xl text-slate-900 dark:text-slate-100 tracking-tight">
             კლიენტების ბაზა
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-semibold">
@@ -149,15 +149,15 @@ export default function ClientsView({
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           <button
             onClick={handleExportCSV}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+            className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
             title="კლიენტების ექსპორტი CSV ფორმატში"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>ექსპორტი (.CSV)</span>
           </button>
           <button
             onClick={handleOpenAdd}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
             <span>+ ახალი კლიენტი</span>
@@ -229,8 +229,8 @@ export default function ClientsView({
 
       {/* Clients Grid */}
       {filteredClients.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center space-y-3 shadow-xs">
-          <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center border border-slate-150 mx-auto">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center border border-slate-150 dark:border-slate-800 mx-auto">
             <Search className="w-6 h-6 text-slate-300" />
           </div>
           <p className="text-slate-500 text-xs font-semibold">
@@ -238,7 +238,7 @@ export default function ClientsView({
           </p>
           <button
             onClick={handleOpenAdd}
-            className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold px-3 py-1.5 rounded-lg transition-all"
+            className="text-xs bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"
           >
             + ახალი კლიენტის დამატება
           </button>
@@ -248,21 +248,21 @@ export default function ClientsView({
           {filteredClients.map((client) => (
             <div 
               key={client.id}
-              className="bg-white border border-slate-200 rounded-xl p-4 hover:border-slate-350 transition-all duration-150 flex flex-col justify-between shadow-xs space-y-3 group relative"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-slate-350 dark:hover:border-slate-700 transition-all duration-150 flex flex-col justify-between shadow-xs space-y-3 group relative"
             >
               {/* Client Info Card */}
               <div className="space-y-2.5">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                    <div className="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs">
                       {client.name.split(" ").map(w => w[0]).join("")}
                     </div>
                     <div>
-                      <h3 className="font-bold text-slate-800 text-xs leading-tight">
+                      <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs leading-tight">
                         {client.name}
                       </h3>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-[10px] text-slate-400 font-semibold">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
                           ID: {client.id.replace("cli_", "#")}
                         </span>
                         {client.tag && tagStyles[client.tag] && (
@@ -279,7 +279,7 @@ export default function ClientsView({
                   <div className="flex items-center gap-1 opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => handleOpenEdit(client)}
-                      className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded transition-colors"
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded transition-colors cursor-pointer"
                       title="რედაქტირება"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -290,7 +290,7 @@ export default function ClientsView({
                           onDeleteClient(client.id);
                         }
                       }}
-                      className="p-1 hover:bg-rose-50 text-rose-400 hover:text-rose-600 rounded transition-colors"
+                      className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-400 hover:text-rose-600 dark:hover:text-rose-300 rounded transition-colors cursor-pointer"
                       title="წაშლა"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -298,24 +298,24 @@ export default function ClientsView({
                   </div>
                 </div>
 
-                <hr className="border-slate-100" />
+                <hr className="border-slate-100 dark:border-slate-800" />
 
                 {/* Contacts */}
-                <div className="space-y-1 text-[11px] text-slate-600">
+                <div className="space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
                   <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <Phone className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
                     <span className="font-semibold font-mono">{client.phone}</span>
                   </div>
                   {client.email && (
                     <div className="flex items-center gap-2">
-                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
                       <span className="truncate">{client.email}</span>
                     </div>
                   )}
                   {client.notes && (
-                    <div className="flex items-start gap-2 bg-slate-50 border border-slate-150 p-2 rounded-lg mt-1.5">
-                      <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                      <p className="text-[10px] text-slate-500 italic leading-snug line-clamp-2">
+                    <div className="flex items-start gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-850 p-2 rounded-lg mt-1.5">
+                      <FileText className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 italic leading-snug line-clamp-2">
                         {client.notes}
                       </p>
                     </div>
@@ -324,21 +324,21 @@ export default function ClientsView({
               </div>
 
               {/* CRM Statistics */}
-              <div className="bg-slate-50 border border-slate-150 rounded-lg p-2.5 grid grid-cols-2 gap-2 text-center">
-                <div className="border-r border-slate-200/50">
-                  <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">
+              <div className="bg-slate-50 dark:bg-slate-950/55 border border-slate-150 dark:border-slate-850 rounded-lg p-2.5 grid grid-cols-2 gap-2 text-center">
+                <div className="border-r border-slate-200/50 dark:border-slate-800/55">
+                  <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold block uppercase tracking-wider">
                     ჯავშნები
                   </span>
-                  <span className="text-xs font-bold text-slate-800 flex items-center justify-center gap-1 mt-0.5">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1 mt-0.5">
                     <CalendarRange className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                     {client.totalBookings}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">
+                  <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold block uppercase tracking-wider">
                     ჯამური ხარჯი
                   </span>
-                  <span className="text-xs font-bold text-slate-800 flex items-center justify-center gap-0.5 mt-0.5">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-center gap-0.5 mt-0.5">
                     <Wallet className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                     {client.totalSpent}₾
                   </span>
@@ -353,22 +353,22 @@ export default function ClientsView({
       {/* Add/Edit Client Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-[#0f172a]/80 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/50">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-xs">
-                <UserPlus className="w-4 h-4 text-indigo-600" />
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="p-4 border-b border-slate-150 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/50">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 text-xs">
+                <UserPlus className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                 {editingClient ? "მომხმარებლის რედაქტირება" : "ახალი კლიენტის დამატება"}
               </h3>
               <button 
                 onClick={() => setShowModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 leading-none"
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-lg font-bold p-1 leading-none cursor-pointer"
               >
                 &times;
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-slate-800">
+            <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-slate-800 dark:text-slate-200">
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   სახელი და გვარი <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -377,12 +377,12 @@ export default function ClientsView({
                   placeholder="მაგ: გიორგი ბერიძე"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   ტელეფონის ნომერი <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -391,12 +391,12 @@ export default function ClientsView({
                   placeholder="მაგ: +995 599 123 456"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 font-mono"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950 font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   ელ-ფოსტა
                 </label>
                 <input
@@ -404,12 +404,12 @@ export default function ClientsView({
                   placeholder="მაგ: info@gmail.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
                   CRM სტატუსი (თეგი)
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -418,8 +418,8 @@ export default function ClientsView({
                     onClick={() => setTag("წარმატებული გარიგება")}
                     className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
                       tag === "წარმატებული გარიგება"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-500 shadow-xs scale-[1.02] dark:bg-emerald-950/25 dark:text-emerald-400"
-                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-500 shadow-xs scale-[1.02] dark:bg-emerald-950/25 dark:text-emerald-400 dark:border-emerald-800"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-850"
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -430,8 +430,8 @@ export default function ClientsView({
                     onClick={() => setTag("მუშაობის პროცესში")}
                     className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
                       tag === "მუშაობის პროცესში"
-                        ? "bg-amber-50 text-amber-700 border-amber-500 shadow-xs scale-[1.02] dark:bg-amber-950/25 dark:text-amber-400"
-                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800"
+                        ? "bg-amber-50 text-amber-700 border-amber-500 shadow-xs scale-[1.02] dark:bg-amber-950/25 dark:text-amber-400 dark:border-amber-800"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-850"
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-amber-500" />
@@ -442,8 +442,8 @@ export default function ClientsView({
                     onClick={() => setTag("წარუმატებლად დახურული")}
                     className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
                       tag === "წარუმატებლად დახურული"
-                        ? "bg-rose-50 text-rose-700 border-rose-500 shadow-xs scale-[1.02] dark:bg-rose-950/25 dark:text-rose-400"
-                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800"
+                        ? "bg-rose-50 text-rose-700 border-rose-500 shadow-xs scale-[1.02] dark:bg-rose-950/25 dark:text-rose-400 dark:border-rose-800"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-850"
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-rose-500" />
@@ -453,7 +453,7 @@ export default function ClientsView({
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   შენიშვნა / კომენტარი
                 </label>
                 <textarea
@@ -461,7 +461,7 @@ export default function ClientsView({
                   placeholder="სასურველი პრეფერენციები ან ალერგიული რეაქციები..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
                 />
               </div>
 
@@ -469,13 +469,13 @@ export default function ClientsView({
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-3.5 py-2 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors font-semibold"
+                  className="px-3.5 py-2 text-xs border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-semibold cursor-pointer"
                 >
                   გაუქმება
                 </button>
                 <button
                   type="submit"
-                  className="px-3.5 py-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-bold"
+                  className="px-3.5 py-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-bold cursor-pointer"
                 >
                   {editingClient ? "შენახვა" : "დამატება"}
                 </button>

@@ -300,22 +300,22 @@ export default function PipelineView({ clients, onEditClient, onAddClient }: Pip
       {/* Quick Add Client Modal */}
       {showQuickAdd && (
         <div className="fixed inset-0 bg-[#0f172a]/80 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/50">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-xs">
-                <Layers className="w-4 h-4 text-indigo-600" />
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg max-w-sm w-full border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="p-4 border-b border-slate-150 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/50">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 text-xs">
+                <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                 კლიენტის დამატება CRM ფილტრში
               </h3>
               <button 
                 onClick={() => setShowQuickAdd(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 leading-none"
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-lg font-bold p-1 leading-none cursor-pointer"
               >
                 &times;
               </button>
             </div>
-            <form onSubmit={handleQuickAddClient} className="p-4 space-y-3.5 text-slate-800">
+            <form onSubmit={handleQuickAddClient} className="p-4 space-y-3.5 text-slate-800 dark:text-slate-200">
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   კლიენტის სახელი და გვარი
                 </label>
                 <input
@@ -324,12 +324,12 @@ export default function PipelineView({ clients, onEditClient, onAddClient }: Pip
                   placeholder="მაგ: გიორგი ბერიძე"
                   value={newClientName}
                   onChange={(e) => setNewClientName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   ტელეფონი
                 </label>
                 <input
@@ -338,18 +338,18 @@ export default function PipelineView({ clients, onEditClient, onAddClient }: Pip
                   placeholder="მაგ: +995 599 123 456"
                   value={newClientPhone}
                   onChange={(e) => setNewClientPhone(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 font-mono"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950 font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
                   საწყისი CRM სტატუსი (თეგი)
                 </label>
                 <select
                   value={newClientStage}
                   onChange={(e) => setNewClientStage(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200"
                 >
                   <option value="მუშაობის პროცესში">🟡 მუშაობის პროცესში</option>
                   <option value="წარმატებული გარიგება">🟢 წარმატებული გარიგება</option>
@@ -362,13 +362,13 @@ export default function PipelineView({ clients, onEditClient, onAddClient }: Pip
                 <button
                   type="button"
                   onClick={() => setShowQuickAdd(false)}
-                  className="px-3 py-2 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors font-semibold"
+                  className="px-3 py-2 text-xs border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-semibold cursor-pointer"
                 >
                   გაუქმება
                 </button>
                 <button
                   type="submit"
-                  className="px-3 py-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-bold"
+                  className="px-3 py-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-bold cursor-pointer"
                 >
                   დამატება
                 </button>
