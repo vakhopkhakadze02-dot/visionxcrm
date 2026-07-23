@@ -10,6 +10,7 @@ import {
   Upload, 
   TrendingUp, 
   DollarSign, 
+  Euro, 
   CheckCircle, 
   XCircle, 
   HelpCircle,
@@ -19,7 +20,8 @@ import {
   Clock,
   User,
   Calendar,
-  Briefcase
+  Briefcase,
+  Search
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -35,7 +37,8 @@ import {
   LineChart,
   Line
 } from "recharts";
-import { Booking, Client, Service, Staff, Business } from "../types";
+import { Booking, Client, Service, Staff, Business, formatPrice } from "../types";
+import KPIDetailsModal from "./KPIDetailsModal";
 
 interface AnalyticsViewProps {
   selectedBusiness: Business;
@@ -63,6 +66,10 @@ export default function AnalyticsView({
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedStaffIdForDetails, setSelectedStaffIdForDetails] = useState<string | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<"revenue" | "avg_ticket" | "completed" | "canceled" | null>(null);
+  const [detailSearchQuery, setDetailSearchQuery] = useState("");
+  const [detailBookingFilter, setDetailBookingFilter] = useState<"all" | "დასრულებული" | "მოლოდინში">("all");
+  const [selectedKPI, setSelectedKPI] = useState<"today_bookings" | "today_revenue" | "today_pending" | "total_revenue" | "cancelled_bookings" | "completed_bookings" | "total_bookings" | null>(null);
 
   // Scoped to current business
   const businessBookings = bookings.filter(b => b.businessId === selectedBusiness.id);
@@ -178,6 +185,49 @@ export default function AnalyticsView({
     });
   }, [businessBookings]);
 
+  // Filtered detail list of bookings based on active detail tab and search query
+  const filteredDetailBookings = useMemo(() => {
+    let list = [...businessBookings];
+    if (activeDetailTab === "revenue") {
+      list = list.filter(b => b.status === "დასრულებული");
+    } else if (activeDetailTab === "canceled") {
+      list = list.filter(b => b.status === "გაუქმებული");
+    } else if (activeDetailTab === "completed") {
+      if (detailBookingFilter !== "all") {
+        list = list.filter(b => b.status === detailBookingFilter);
+      }
+    } else {
+      return []; // Not applicable for average ticket
+    }
+
+    if (!detailSearchQuery.trim()) return list;
+
+    const query = detailSearchQuery.toLowerCase();
+    return list.filter(b => {
+      const clientName = clients.find(c => c.id === b.clientId)?.name.toLowerCase() || "";
+      const serviceName = services.find(s => s.id === b.serviceId)?.name.toLowerCase() || "";
+      const staffName = staff.find(st => st.id === b.staffId)?.name.toLowerCase() || "";
+      return clientName.includes(query) || serviceName.includes(query) || staffName.includes(query);
+    });
+  }, [businessBookings, activeDetailTab, detailBookingFilter, detailSearchQuery, clients, services, staff]);
+
+  // Services with their average check pricing
+  const serviceAverages = useMemo(() => {
+    if (activeDetailTab !== "avg_ticket") return [];
+    return services.map(s => {
+      const sBookings = completedBookings.filter(b => b.serviceId === s.id);
+      const sTotal = sBookings.reduce((sum, b) => sum + b.price, 0);
+      const sAvg = sBookings.length > 0 ? Math.round(sTotal / sBookings.length) : 0;
+      return {
+        id: s.id,
+        name: s.name,
+        category: s.category,
+        count: sBookings.length,
+        avgPrice: sAvg
+      };
+    }).filter(item => item.count > 0).sort((a, b) => b.avgPrice - a.avgPrice);
+  }, [services, completedBookings, activeDetailTab]);
+
   // JSON Export CRM Backup
   const handleExportData = () => {
     const dbBackup = {
@@ -204,7 +254,8 @@ export default function AnalyticsView({
 
   // CSV Export for Clients (Customers)
   const handleExportClientsCSV = () => {
-    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", "ჯამური დანახარჯი (₾)", "შენიშვნა"];
+    const currencySign = selectedBusiness.currency === "USD" ? "$" : selectedBusiness.currency === "EUR" ? "€" : "₾";
+    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", `ჯამური დანახარჯი (${currencySign})`, "შენიშვნა"];
     const rows = clients.map(c => [
       c.name,
       c.phone,
@@ -234,7 +285,8 @@ export default function AnalyticsView({
   // CSV Export for Bookings
   const handleExportBookingsCSV = () => {
     const businessBookings = bookings.filter(b => b.businessId === selectedBusiness.id);
-    const headers = ["ჯავშნის ID", "კლიენტის სახელი", "სერვისი", "თანამშრომელი", "თარიღი", "დრო", "ფასი (₾)", "სტატუსი", "შენიშვნა"];
+    const currencySign = selectedBusiness.currency === "USD" ? "$" : selectedBusiness.currency === "EUR" ? "€" : "₾";
+    const headers = ["ჯავშნის ID", "კლიენტის სახელი", "სერვისი", "თანამშრომელი", "თარიღი", "დრო", `ფასი (${currencySign})`, "სტატუსი", "შენიშვნა"];
     
     const rows = businessBookings.map(b => {
       const clientName = clients.find(c => c.id === b.clientId)?.name || "უცნობი კლიენტი";
@@ -344,64 +396,106 @@ export default function AnalyticsView({
       {/* Analytics Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Revenue */}
-        <div className="bg-white border border-slate-100 rounded-xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
-            <DollarSign className="w-5 h-5" />
+        <button
+          onClick={() => {
+            setSelectedKPI("total_revenue");
+          }}
+          className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-5 shadow-xs flex items-center gap-4 hover:scale-[1.02] active:scale-[0.98] hover:border-emerald-300 dark:hover:border-emerald-700 transition-all text-left w-full cursor-pointer group"
+          id="analytics-card-total-revenue"
+        >
+          <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-100 dark:border-emerald-900/30 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors">
+            {selectedBusiness.currency === "USD" ? (
+              <DollarSign className="w-5 h-5" />
+            ) : selectedBusiness.currency === "EUR" ? (
+              <Euro className="w-5 h-5" />
+            ) : (
+              <span className="text-base font-black select-none leading-none">₾</span>
+            )}
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">
               ჯამური შემოსავალი
             </span>
-            <span className="text-xl font-bold text-slate-800 block">
-              {totalRevenue}₾
+            <span className="text-xl font-bold text-slate-800 dark:text-slate-100 block mt-1.5 leading-none">
+              {formatPrice(totalRevenue, selectedBusiness.currency)}
+            </span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Avg Ticket */}
-        <div className="bg-white border border-slate-100 rounded-xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center shrink-0 border border-violet-100">
+        <button
+          onClick={() => {
+            setSelectedKPI("completed_bookings");
+          }}
+          className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-5 shadow-xs flex items-center gap-4 hover:scale-[1.02] active:scale-[0.98] hover:border-violet-300 dark:hover:border-violet-700 transition-all text-left w-full cursor-pointer group"
+          id="analytics-card-avg-ticket"
+        >
+          <div className="w-10 h-10 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0 border border-violet-100 dark:border-violet-900/30 group-hover:bg-violet-100 dark:group-hover:bg-violet-900/50 transition-colors">
             <TrendingUp className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">
               საშუალო ჩეკი
             </span>
-            <span className="text-xl font-bold text-slate-800 block">
-              {avgBookingPrice}₾
+            <span className="text-xl font-bold text-slate-800 dark:text-slate-100 block mt-1.5 leading-none">
+              {formatPrice(avgBookingPrice, selectedBusiness.currency)}
+            </span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Completed Ratio */}
-        <div className="bg-white border border-slate-100 rounded-xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+        <button
+          onClick={() => {
+            setSelectedKPI("completed_bookings");
+          }}
+          className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-5 shadow-xs flex items-center gap-4 hover:scale-[1.02] active:scale-[0.98] hover:border-blue-300 dark:hover:border-blue-700 transition-all text-left w-full cursor-pointer group"
+          id="analytics-card-completed-bookings"
+        >
+          <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900/30 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/50 transition-colors">
             <CheckCircle className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">
               დასრულებული ჯავშნები
             </span>
-            <span className="text-xl font-bold text-slate-800 block">
+            <span className="text-xl font-bold text-slate-800 dark:text-slate-100 block mt-1.5 leading-none">
               {completedCount} / {totalBookingsCount}
             </span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
+            </span>
           </div>
-        </div>
+        </button>
 
         {/* Canceled */}
-        <div className="bg-white border border-slate-100 rounded-xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+        <button
+          onClick={() => {
+            setSelectedKPI("cancelled_bookings");
+          }}
+          className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-5 shadow-xs flex items-center gap-4 hover:scale-[1.02] active:scale-[0.98] hover:border-rose-300 dark:hover:border-rose-700 transition-all text-left w-full cursor-pointer group"
+          id="analytics-card-cancelled-bookings"
+        >
+          <div className="w-10 h-10 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 border border-rose-100 dark:border-rose-900/30 group-hover:bg-rose-100 dark:group-hover:bg-rose-900/50 transition-colors">
             <XCircle className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">
               გაუქმებული ჯავშნები
             </span>
-            <span className="text-xl font-bold text-slate-800 block">
+            <span className="text-xl font-bold text-slate-800 dark:text-slate-100 block mt-1.5 leading-none">
               {canceledCount}
             </span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
+            </span>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Visual Analytics Charts Grid */}
@@ -413,7 +507,7 @@ export default function AnalyticsView({
               ყოველდღიური შემოსავლის ტრენდი
             </h3>
             <p className="text-xs text-slate-400 font-semibold mt-1">
-              ბოლო 7 დღის ფინანსური მონაცემები (₾)
+              ბოლო 7 დღის ფინანსური მონაცემები ({selectedBusiness.currency === "USD" ? "$" : selectedBusiness.currency === "EUR" ? "€" : "₾"})
             </p>
           </div>
 
@@ -433,7 +527,7 @@ export default function AnalyticsView({
                   <div key={index} className="flex-1 flex flex-col items-center group relative z-10">
                     {/* Tooltip on Hover */}
                     <div className="absolute bottom-full mb-2 bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md text-center pointer-events-none min-w-[70px]">
-                      <span className="font-bold block">{d.earnings}₾</span>
+                      <span className="font-bold block">{formatPrice(d.earnings, selectedBusiness.currency)}</span>
                       <span className="text-[9px] text-slate-300 block font-normal">{d.count} ჯავშანი</span>
                     </div>
 
@@ -560,7 +654,7 @@ export default function AnalyticsView({
                               <span className="w-2 h-2 rounded-full bg-emerald-500" />
                               <span className="text-slate-400">შემოსავალი:</span>
                             </div>
-                            <span className="font-mono font-bold text-slate-200">{revenue}₾</span>
+                            <span className="font-mono font-bold text-slate-200">{formatPrice(Number(revenue), selectedBusiness.currency)}</span>
                           </div>
                           <div className="flex items-center justify-between gap-6">
                             <div className="flex items-center gap-1.5">
@@ -745,7 +839,7 @@ export default function AnalyticsView({
                   <td className="p-4 text-slate-500 font-medium">{st.role}</td>
                   <td className="p-4 text-center font-bold text-slate-700">{st.bookingsCount}</td>
                   <td className="p-4 text-center font-bold text-emerald-600">{st.completedCount}</td>
-                  <td className="p-4 text-right font-extrabold text-slate-800">{st.revenue}₾</td>
+                  <td className="p-4 text-right font-extrabold text-slate-800">{formatPrice(st.revenue, selectedBusiness.currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -822,7 +916,7 @@ export default function AnalyticsView({
                     </div>
                     <div className="bg-indigo-50/20 border border-indigo-100/50 p-3 rounded-xl text-center">
                       <span className="text-[10px] text-indigo-600/80 font-bold uppercase tracking-wider block">შემოსავალი</span>
-                      <span className="text-base font-extrabold text-indigo-600 block mt-0.5">{staffStatsInfo?.revenue || 0}₾</span>
+                      <span className="text-base font-extrabold text-indigo-600 block mt-0.5">{formatPrice(staffStatsInfo?.revenue || 0, selectedBusiness.currency)}</span>
                     </div>
                   </div>
 
@@ -874,7 +968,7 @@ export default function AnalyticsView({
                                   </div>
                                 </td>
                                 <td className="p-3 text-right font-extrabold text-slate-800">
-                                  {job.price}₾
+                                  {formatPrice(job.price, selectedBusiness.currency)}
                                 </td>
                               </tr>
                             ))}
@@ -890,6 +984,350 @@ export default function AnalyticsView({
                   <button
                     onClick={() => setSelectedStaffIdForDetails(null)}
                     className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+                  >
+                    დახურვა
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Metrics Detail Modal */}
+      <AnimatePresence>
+        {activeDetailTab && (() => {
+          let modalTitle = "";
+          let themeColor = "indigo";
+          
+          if (activeDetailTab === "revenue") {
+            modalTitle = "შემოსავლების დეტალური ანგარიში";
+            themeColor = "emerald";
+          } else if (activeDetailTab === "avg_ticket") {
+            modalTitle = "საშუალო ჩეკის ანალიტიკა";
+            themeColor = "violet";
+          } else if (activeDetailTab === "completed") {
+            modalTitle = "დასრულებული ჯავშნების რეესტრი";
+            themeColor = "blue";
+          } else if (activeDetailTab === "canceled") {
+            modalTitle = "გაუქმებული ჯავშნების ანალიზი";
+            themeColor = "rose";
+          }
+
+          const highestPrice = completedBookings.length > 0 ? Math.max(...completedBookings.map(b => b.price)) : 0;
+          const lowestPrice = completedBookings.length > 0 ? Math.min(...completedBookings.map(b => b.price)) : 0;
+          const lostRevenue = businessBookings.filter(b => b.status === "გაუქმებული").reduce((sum, b) => sum + b.price, 0);
+          const cancellationRate = totalBookingsCount > 0 ? Math.round((canceledCount / totalBookingsCount) * 100) : 0;
+          const completionRate = totalBookingsCount > 0 ? Math.round((completedCount / totalBookingsCount) * 100) : 0;
+          const pendingCount = businessBookings.filter(b => b.status === "მოლოდინში").length;
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              {/* Backdrop with Blur */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setActiveDetailTab(null)}
+                className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
+              />
+
+              {/* Modal Box */}
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 15 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 15 }}
+                className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 w-full max-w-3xl overflow-hidden relative z-10 flex flex-col max-h-[85vh] transition-colors font-sans"
+              >
+                {/* Header */}
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shadow-xs border ${
+                      themeColor === "emerald" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" :
+                      themeColor === "violet" ? "bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 border-violet-100 dark:border-violet-900/30" :
+                      themeColor === "blue" ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/30" :
+                      "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
+                    }`}>
+                      {activeDetailTab === "revenue" && (
+                        selectedBusiness.currency === "USD" ? (
+                          <DollarSign className="w-5 h-5" />
+                        ) : selectedBusiness.currency === "EUR" ? (
+                          <Euro className="w-5 h-5" />
+                        ) : (
+                          <span className="text-base font-black select-none leading-none">₾</span>
+                        )
+                      )}
+                      {activeDetailTab === "avg_ticket" && <TrendingUp className="w-5 h-5" />}
+                      {activeDetailTab === "completed" && <CheckCircle className="w-5 h-5" />}
+                      {activeDetailTab === "canceled" && <XCircle className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm font-display leading-tight">
+                        {modalTitle}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold leading-none mt-1">
+                        {selectedBusiness.name} • დეტალური მონაცემები
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveDetailTab(null)}
+                    className="p-1.5 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <X className="w-4.5 h-4.5" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="p-6 overflow-y-auto space-y-6">
+                  {/* Highlights Mini Stats Grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {activeDetailTab === "revenue" && (
+                      <>
+                        <div className="bg-emerald-50/20 dark:bg-emerald-950/10 border border-emerald-100/50 dark:border-emerald-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">ჯამური შემოსავალი</span>
+                          <span className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 block mt-1.5">{formatPrice(totalRevenue, selectedBusiness.currency)}</span>
+                        </div>
+                        <div className="bg-slate-50/50 dark:bg-slate-950/25 border border-slate-100 dark:border-slate-800 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">ჯავშნები (სულ)</span>
+                          <span className="text-base font-extrabold text-slate-800 dark:text-slate-100 block mt-1.5">{completedCount}</span>
+                        </div>
+                        <div className="bg-slate-50/50 dark:bg-slate-950/25 border border-slate-100 dark:border-slate-800 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">უდიდესი ჯავშანი</span>
+                          <span className="text-base font-extrabold text-slate-800 dark:text-slate-100 block mt-1.5">{formatPrice(highestPrice, selectedBusiness.currency)}</span>
+                        </div>
+                      </>
+                    )}
+
+                    {activeDetailTab === "avg_ticket" && (
+                      <>
+                        <div className="bg-violet-50/20 dark:bg-violet-950/10 border border-violet-100/50 dark:border-violet-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">საშუალო ჩეკი</span>
+                          <span className="text-base font-extrabold text-violet-600 dark:text-violet-400 block mt-1.5">{formatPrice(avgBookingPrice, selectedBusiness.currency)}</span>
+                        </div>
+                        <div className="bg-slate-50/50 dark:bg-slate-950/25 border border-slate-100 dark:border-slate-800 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">დასრულებული ჯავშნები</span>
+                          <span className="text-base font-extrabold text-slate-800 dark:text-slate-100 block mt-1.5">{completedCount}</span>
+                        </div>
+                        <div className="bg-slate-50/50 dark:bg-slate-950/25 border border-slate-100 dark:border-slate-800 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">უდიდესი / უმცირესი</span>
+                          <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block mt-2">{formatPrice(highestPrice, selectedBusiness.currency)} / {formatPrice(lowestPrice, selectedBusiness.currency)}</span>
+                        </div>
+                      </>
+                    )}
+
+                    {activeDetailTab === "completed" && (
+                      <>
+                        <div className="bg-blue-50/20 dark:bg-blue-950/10 border border-blue-100/50 dark:border-blue-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">სულ რეგისტრირებული</span>
+                          <span className="text-base font-extrabold text-blue-600 dark:text-blue-400 block mt-1.5">{totalBookingsCount}</span>
+                        </div>
+                        <div className="bg-emerald-50/20 dark:bg-emerald-950/10 border border-emerald-100/50 dark:border-emerald-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">დასრულებული</span>
+                          <span className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 block mt-1.5">{completedCount} ({completionRate}%)</span>
+                        </div>
+                        <div className="bg-amber-50/20 dark:bg-amber-950/10 border border-amber-100/50 dark:border-amber-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">მოლოდინში</span>
+                          <span className="text-base font-extrabold text-amber-600 dark:text-amber-400 block mt-1.5">{pendingCount}</span>
+                        </div>
+                      </>
+                    )}
+
+                    {activeDetailTab === "canceled" && (
+                      <>
+                        <div className="bg-rose-50/20 dark:bg-rose-950/10 border border-rose-100/50 dark:border-rose-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">გაუქმებული ჯავშნები</span>
+                          <span className="text-base font-extrabold text-rose-600 dark:text-rose-400 block mt-1.5">{canceledCount}</span>
+                        </div>
+                        <div className="bg-rose-50/20 dark:bg-rose-950/10 border border-rose-100/50 dark:border-rose-900/30 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">გაცდენილი შემოსავალი</span>
+                          <span className="text-base font-extrabold text-rose-700 dark:text-rose-400 block mt-1.5">{formatPrice(lostRevenue, selectedBusiness.currency)}</span>
+                        </div>
+                        <div className="bg-slate-50/50 dark:bg-slate-950/25 border border-slate-100 dark:border-slate-800 p-3 rounded-xl text-center">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider block leading-none">გაუქმების კოეფიციენტი</span>
+                          <span className="text-base font-extrabold text-slate-800 dark:text-slate-100 block mt-1.5">{cancellationRate}%</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Specific content depending on active tab */}
+                  {activeDetailTab === "avg_ticket" ? (
+                    /* Average ticket shows service by service pricing details */
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h5 className="font-bold text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider leading-none">
+                          მომსახურებების საშუალო ღირებულება
+                        </h5>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium leading-none">სულ {serviceAverages.length} აქტიური მომსახურება</span>
+                      </div>
+                      
+                      <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
+                        <div className="overflow-x-auto scrollbar-thin">
+                          <table className="w-full text-left border-collapse text-xs min-w-[500px]">
+                            <thead>
+                              <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-[9px]">
+                                <th className="p-3">მომსახურების დასახელება</th>
+                                <th className="p-3 text-center">შესრულებული რაოდენობა</th>
+                                <th className="p-3 text-right">საშუალო ჩეკი</th>
+                                <th className="p-3 text-right">შედარება ჯამურთან ({formatPrice(avgBookingPrice, selectedBusiness.currency)})</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {serviceAverages.map(s => {
+                                const diff = s.avgPrice - avgBookingPrice;
+                                return (
+                                  <tr key={s.id} className="border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-950/20 transition-colors">
+                                    <td className="p-3">
+                                      <div className="font-bold text-slate-800 dark:text-slate-200">{s.name}</div>
+                                      <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">{s.category}</div>
+                                    </td>
+                                    <td className="p-3 text-center font-semibold text-slate-600 dark:text-slate-400">
+                                      {s.count}
+                                    </td>
+                                    <td className="p-3 text-right font-extrabold text-slate-800 dark:text-slate-200">
+                                      {formatPrice(s.avgPrice, selectedBusiness.currency)}
+                                    </td>
+                                    <td className="p-3 text-right font-bold">
+                                      {diff === 0 ? (
+                                        <span className="text-slate-400 dark:text-slate-500 font-medium">ზუსტი საშუალო</span>
+                                      ) : diff > 0 ? (
+                                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-0.5 font-mono">
+                                          +{formatPrice(diff, selectedBusiness.currency)} ▲
+                                        </span>
+                                      ) : (
+                                        <span className="text-rose-600 dark:text-rose-400 flex items-center justify-end gap-0.5 font-mono">
+                                          {formatPrice(diff, selectedBusiness.currency)} ▼
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Other tabs show booking list with search and filters */
+                    <div className="space-y-3.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h5 className="font-bold text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider flex items-center gap-1.5 leading-none">
+                          <span>ჯავშნების სია ({filteredDetailBookings.length})</span>
+                        </h5>
+
+                        {/* Search and completed filter tabs */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {activeDetailTab === "completed" && (
+                            <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-bold">
+                              <button
+                                type="button"
+                                onClick={() => setDetailBookingFilter("all")}
+                                className={`px-2 py-1 rounded-md transition-all cursor-pointer ${detailBookingFilter === "all" ? "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
+                              >
+                                ყველა
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDetailBookingFilter("დასრულებული")}
+                                className={`px-2 py-1 rounded-md transition-all cursor-pointer ${detailBookingFilter === "დასრულებული" ? "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
+                              >
+                                დასრულებული
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDetailBookingFilter("მოლოდინში")}
+                                className={`px-2 py-1 rounded-md transition-all cursor-pointer ${detailBookingFilter === "მოლოდინში" ? "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
+                              >
+                                მოლოდინში
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Quick Search */}
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="ძებნა (კლიენტი, მომსახურება...)"
+                              value={detailSearchQuery}
+                              onChange={(e) => setDetailSearchQuery(e.target.value)}
+                              className="pl-8 pr-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-[10px] bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-200 min-w-[200px]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {filteredDetailBookings.length === 0 ? (
+                        <div className="text-center py-10 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-800 rounded-xl space-y-1.5">
+                          <CheckCircle className="w-6 h-6 text-slate-300 mx-auto" />
+                          <p className="text-slate-400 dark:text-slate-500 text-xs font-semibold">მონაცემები არასაკმარისია ან ძიებამ შედეგი ვერ გამოიღო</p>
+                        </div>
+                      ) : (
+                        <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden max-h-[300px] overflow-y-auto">
+                          <table className="w-full text-left border-collapse text-xs min-w-[600px]">
+                            <thead>
+                              <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider text-[9px] sticky top-0 z-10">
+                                <th className="p-3 bg-slate-50 dark:bg-slate-950">კლიენტი</th>
+                                <th className="p-3 bg-slate-50 dark:bg-slate-950">მომსახურება</th>
+                                <th className="p-3 bg-slate-50 dark:bg-slate-950">სპეციალისტი</th>
+                                <th className="p-3 bg-slate-50 dark:bg-slate-950">თარიღი და დრო</th>
+                                {activeDetailTab === "canceled" && <th className="p-3 bg-slate-50 dark:bg-slate-950">გაუქმების მიზეზი</th>}
+                                <th className="p-3 text-right bg-slate-50 dark:bg-slate-950">თანხა</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredDetailBookings.map(job => (
+                                <tr key={job.id} className="border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-950/20 transition-colors">
+                                  <td className="p-3 font-semibold text-slate-700 dark:text-slate-200">
+                                    <div className="flex items-center gap-1.5">
+                                      <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      <span>{clients.find(c => c.id === job.clientId)?.name || "კლიენტი"}</span>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-slate-600 dark:text-slate-300 font-medium">
+                                    {services.find(s => s.id === job.serviceId)?.name || "სერვისი"}
+                                  </td>
+                                  <td className="p-3 text-slate-600 dark:text-slate-300 font-medium">
+                                    {staff.find(st => st.id === job.staffId)?.name || "თანამშრომელი"}
+                                  </td>
+                                  <td className="p-3 text-slate-500 dark:text-slate-400 font-medium">
+                                    <div className="flex flex-col">
+                                      <span className="flex items-center gap-1">
+                                        <Calendar className="w-3 h-3 text-slate-400" />
+                                        {job.date}
+                                      </span>
+                                      <span className="flex items-center gap-1 text-[10px] text-slate-400 font-semibold mt-0.5">
+                                        <Clock className="w-3 h-3 text-slate-400" />
+                                        {job.time}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  {activeDetailTab === "canceled" && (
+                                    <td className="p-3 text-slate-500 dark:text-slate-400 italic max-w-[150px] truncate">
+                                      {job.notes || "მიზეზი მითითებული არ არის"}
+                                    </td>
+                                  )}
+                                  <td className="p-3 text-right font-extrabold text-slate-800 dark:text-slate-100">
+                                    {formatPrice(job.price, selectedBusiness.currency)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setActiveDetailTab(null)}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
                   >
                     დახურვა
                   </button>
@@ -1006,6 +1444,17 @@ export default function AnalyticsView({
           </div>
         </div>
       </div>
+
+      <KPIDetailsModal
+        isOpen={selectedKPI !== null}
+        onClose={() => setSelectedKPI(null)}
+        selectedBusiness={selectedBusiness}
+        kpiType={selectedKPI}
+        bookings={bookings}
+        clients={clients}
+        services={services}
+        staff={staff}
+      />
     </div>
   );
 }

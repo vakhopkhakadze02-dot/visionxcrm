@@ -26,6 +26,7 @@ import {
   HelpCircle
 } from "lucide-react";
 import { Followup, Client } from "../types";
+import ConfirmModal from "./ConfirmModal";
 
 interface FollowupsViewProps {
   followups: Followup[];
@@ -50,6 +51,9 @@ export default function FollowupsView({
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [followupToDelete, setFollowupToDelete] = useState<Followup | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Form states
   const [selectedClientId, setSelectedClientId] = useState<string>("manual");
@@ -100,8 +104,9 @@ export default function FollowupsView({
   // Form submit handler
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setAddError(null);
     if (!clientName.trim() || !clientPhone.trim() || !topic.trim()) {
-      alert("გთხოვთ შეავსოთ აუცილებელი ველები (კლიენტის სახელი, ტელეფონი, თემა)!");
+      setAddError("გთხოვთ შეავსოთ აუცილებელი ველები (კლიენტის სახელი, ტელეფონი, თემა)!");
       return;
     }
 
@@ -128,6 +133,7 @@ export default function FollowupsView({
 
   // Start edit handler
   const startEdit = (item: Followup) => {
+    setEditError(null);
     setEditingId(item.id);
     setEditClientName(item.clientName);
     setEditClientPhone(item.clientPhone);
@@ -140,8 +146,9 @@ export default function FollowupsView({
 
   // Save edit handler
   const saveEdit = (id: string) => {
+    setEditError(null);
     if (!editClientName.trim() || !editClientPhone.trim() || !editTopic.trim()) {
-      alert("გთხოვთ შეავსოთ აუცილებელი ველები!");
+      setEditError("გთხოვთ შეავსოთ აუცილებელი ველები!");
       return;
     }
 
@@ -220,7 +227,10 @@ export default function FollowupsView({
         </div>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            setShowAddForm(!showAddForm);
+            setAddError(null);
+          }}
           className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all duration-150 shadow-sm self-start sm:self-auto cursor-pointer"
         >
           {showAddForm ? (
@@ -310,6 +320,12 @@ export default function FollowupsView({
               </div>
 
               <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-slate-800 dark:text-slate-100">
+                {addError && (
+                  <div className="md:col-span-3 p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 text-xs font-bold rounded-lg flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                    <span>{addError}</span>
+                  </div>
+                )}
                 
                 {/* Selection from client database */}
                 <div className="md:col-span-1">
@@ -486,6 +502,13 @@ export default function FollowupsView({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {editError && (
+        <div className="p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-xl flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+          <span>{editError}</span>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-4 shadow-xs flex flex-col md:flex-row gap-3">
@@ -721,7 +744,10 @@ export default function FollowupsView({
                               შენახვა
                             </button>
                             <button
-                              onClick={() => setEditingId(null)}
+                              onClick={() => {
+                                setEditingId(null);
+                                setEditError(null);
+                              }}
                               className="p-1 px-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-bold transition-colors cursor-pointer"
                             >
                               გაუქმება
@@ -779,11 +805,7 @@ export default function FollowupsView({
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => {
-                                if (confirm("ნამდვილად გსურთ ამ დავალების წაშლა?")) {
-                                  onDeleteFollowup(item.id);
-                                }
-                              }}
+                              onClick={() => setFollowupToDelete(item)}
                               className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg transition-colors"
                               title="წაშლა"
                             >
@@ -970,7 +992,10 @@ export default function FollowupsView({
                               შენახვა
                             </button>
                             <button
-                              onClick={() => setEditingId(null)}
+                              onClick={() => {
+                                setEditingId(null);
+                                setEditError(null);
+                              }}
                               className="p-1 px-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-bold transition-colors cursor-pointer"
                             >
                               გაუქმება
@@ -985,11 +1010,7 @@ export default function FollowupsView({
                               <Edit2 className="w-3 h-3" />
                             </button>
                             <button
-                              onClick={() => {
-                                if (confirm("ნამდვილად გსურთ წაშლა?")) {
-                                  onDeleteFollowup(item.id);
-                                }
-                              }}
+                              onClick={() => setFollowupToDelete(item)}
                               className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-100 hover:text-red-600 text-slate-400 rounded-lg"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -1018,6 +1039,21 @@ export default function FollowupsView({
           </span>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={followupToDelete !== null}
+        onClose={() => setFollowupToDelete(null)}
+        onConfirm={() => {
+          if (followupToDelete) {
+            onDeleteFollowup(followupToDelete.id);
+          }
+        }}
+        title="დავალების წაშლა"
+        message={followupToDelete ? `ნამდვილად გსურთ წაშალოთ ეს შეხსენება კლიენტისთვის: ${followupToDelete.clientName}?` : ""}
+        confirmText="წაშლა"
+        cancelText="გაუქმება"
+        variant="danger"
+      />
     </div>
   );
 }

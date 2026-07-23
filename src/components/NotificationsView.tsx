@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Mail, 
   MessageSquare, 
@@ -66,6 +66,21 @@ export default function NotificationsView({
   const [emailjsTemplateId, setEmailjsTemplateId] = useState(settings.emailjsTemplateId || "");
   const [emailjsUserId, setEmailjsUserId] = useState(settings.emailjsUserId || "");
   const [emailjsAccessToken, setEmailjsAccessToken] = useState(settings.emailjsAccessToken || "");
+
+  // Keep state synced with props when settings change (e.g. business switched)
+  useEffect(() => {
+    setSmsEnabled(settings.smsEnabled);
+    setEmailEnabled(settings.emailEnabled);
+    setSmsTemplate(settings.smsTemplate);
+    setEmailTemplate(settings.emailTemplate);
+    setTwilioSid(settings.twilioSid || "");
+    setTwilioToken(settings.twilioToken || "");
+    setTwilioFrom(settings.twilioFrom || "");
+    setEmailjsServiceId(settings.emailjsServiceId || "");
+    setEmailjsTemplateId(settings.emailjsTemplateId || "");
+    setEmailjsUserId(settings.emailjsUserId || "");
+    setEmailjsAccessToken(settings.emailjsAccessToken || "");
+  }, [settings]);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);

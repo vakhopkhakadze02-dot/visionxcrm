@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import { supabase, isSupabaseConfigured } from "../supabaseClient";
-import { Lock, Mail, Building2, ChevronRight, HelpCircle, Database, CheckCircle2 } from "lucide-react";
+import { Lock, Mail, Building2, ChevronRight, HelpCircle, Database, CheckCircle2, ArrowLeft, Key, Download, Upload, Search } from "lucide-react";
 
 interface AuthViewProps {
   onAuthSuccess: (session: any) => void;
@@ -19,6 +19,22 @@ export default function AuthView({ onAuthSuccess, onContinueLocal }: AuthViewPro
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [recoveryTab, setRecoveryTab] = useState<"password" | "email" | "backup">("password");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryBusinessName, setRecoveryBusinessName] = useState("");
+  const [suggestedEmail, setSuggestedEmail] = useState<string | null>(null);
+  const [isRecovering, setIsRecovering] = useState(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash || "";
+      const search = window.location.search || "";
+      return hash.includes("type=recovery") || search.includes("recovery=true") || hash.includes("access_token=");
+    }
+    return false;
+  });
+  const [newPassword, setNewPassword] = useState("");
+
+  const cachedEmail = typeof window !== "undefined" ? localStorage.getItem("vxcrm_last_active_email") : null;
 
   const isDevMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dev") === "true";
   const showDevTools = !isSupabaseConfigured || isDevMode;
@@ -181,6 +197,7 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
         if (signUpError) throw signUpError;
 
         if (data?.user) {
+          localStorage.setItem("vxcrm_last_active_email", email);
           // Attempt to pre-create the business for this user
           try {
             const { error: dbError } = await supabase.from("businesses").insert({
@@ -208,6 +225,7 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
 
         if (signInError) throw signInError;
         if (data?.session) {
+          localStorage.setItem("vxcrm_last_active_email", email);
           onAuthSuccess(data.session);
         }
       }
@@ -216,6 +234,133 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+      if (isSupabaseConfigured) {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(recoveryEmail, {
+          redirectTo: `${window.location.origin}?recovery=true`,
+        });
+        if (resetError) throw resetError;
+        setSuccessMsg("პაროლის აღდგენის ბმული წარმატებით გაიგზავნა თქვენს ელ-ფოსტაზე! გთხოვთ შეამოწმოთ საფოსტო ყუთი.");
+      } else {
+        setSuccessMsg(`[დემო რეჟიმი] აღდგენის ინსტრუქცია იმიტირებულად გაიგზავნა მისამართზე: ${recoveryEmail}.`);
+      }
+    } catch (err: any) {
+      setError(err.message || "აღდგენის მოთხოვნის გაგზავნა ვერ მოხერხდა.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      if (isSupabaseConfigured) {
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: newPassword
+        });
+        if (updateError) throw updateError;
+        setSuccessMsg("პაროლი წარმატებით განახლდა! შეგიძლიათ ჩვეულებრივად გააგრძელოთ მუშაობა.");
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", window.location.origin);
+        }
+        setTimeout(() => {
+          setIsRecovering(false);
+          supabase.auth.getSession().then(({ data: { session: newSession } }) => {
+            if (newSession) {
+              onAuthSuccess(newSession);
+            }
+          });
+        }, 2500);
+      } else {
+        setSuccessMsg("[დემო რეჟიმი] პაროლი წარმატებით განახლდა!");
+        setTimeout(() => {
+          setIsRecovering(false);
+        }, 2500);
+      }
+    } catch (err: any) {
+      setError(err.message || "პაროლის განახლება ვერ მოხერხდა.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportBackup = () => {
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const backupData: Record<string, any> = {};
+      const keys = [
+        "vxcrm_businesses",
+        "vxcrm_selected_business",
+        "vxcrm_clients",
+        "vxcrm_services",
+        "vxcrm_staff",
+        "vxcrm_bookings",
+        "vxcrm_followups",
+        "vxcrm_notification_settings",
+        "vxcrm_notification_logs",
+        "vxcrm_last_active_email"
+      ];
+      keys.forEach(key => {
+        const val = localStorage.getItem(key);
+        if (val) backupData[key] = val;
+      });
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `visionx_crm_backup_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      setSuccessMsg("სარეზერვო ასლი წარმატებით ჩამოიტვირთა! შეინახეთ ფაილი უსაფრთხოდ.");
+    } catch (err: any) {
+      setError("ვერ მოხერხდა სარეზერვო ასლის შექმნა: " + err.message);
+    }
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError(null);
+    setSuccessMsg(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        let importedCount = 0;
+        Object.entries(parsed).forEach(([key, val]) => {
+          if (key.startsWith("vxcrm_") && typeof val === "string") {
+            localStorage.setItem(key, val);
+            importedCount++;
+          }
+        });
+
+        if (importedCount > 0) {
+          setSuccessMsg("ყველა მონაცემი წარმატებით აღდგა ფაილიდან! გვერდი გადაიტვირთება 2 წამში...");
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        } else {
+          setError("სარეზერვო ფაილი არ შეიცავს VisionX CRM-ის მონაცემებს.");
+        }
+      } catch (err) {
+        setError("ფაილის წაკითხვისას დაფიქსირდა შეცდომა. დარწმუნდით, რომ სწორი .json ფაილია.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -311,13 +456,272 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
             </div>
           </div>
 
-          {isSupabaseConfigured ? (
+          {isRecovering ? (
+            <form onSubmit={handleUpdatePassword} className="space-y-4 animate-fade-in">
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-850">
+                <button
+                  type="button"
+                  onClick={() => { setIsRecovering(false); setError(null); setSuccessMsg(null); }}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                  title="უკან დაბრუნება"
+                >
+                  <ArrowLeft className="w-4.5 h-4.5" />
+                </button>
+                <h2 className="text-sm font-bold text-white font-display">ახალი პაროლის დაყენება</h2>
+              </div>
+
+              {error && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold">
+                  {error}
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  {successMsg}
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                გთხოვთ, ჩაწეროთ თქვენი ახალი უსაფრთხო პაროლი (მინიმუმ 6 სიმბოლო).
+              </p>
+
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input
+                  type="password"
+                  required
+                  placeholder="ახალი პაროლი"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-xs text-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {loading ? "ინახება..." : "პაროლის განახლება"}
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </form>
+          ) : showRecovery ? (
+            <div className="space-y-6 animate-fade-in">
+              {/* Recovery Header */}
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-850">
+                <button
+                  type="button"
+                  onClick={() => { setShowRecovery(false); setError(null); setSuccessMsg(null); }}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                  title="უკან დაბრუნება"
+                >
+                  <ArrowLeft className="w-4.5 h-4.5" />
+                </button>
+                <h2 className="text-sm font-bold text-white font-display">ანგარიშის აღდგენა & Backup</h2>
+              </div>
+
+              {/* Recovery Tabs */}
+              <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-850">
+                <button
+                  type="button"
+                  onClick={() => { setRecoveryTab("password"); setError(null); setSuccessMsg(null); }}
+                  className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                    recoveryTab === "password" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  პაროლის აღდგენა
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setRecoveryTab("email"); setError(null); setSuccessMsg(null); }}
+                  className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                    recoveryTab === "email" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  ელ-ფოსტის პოვნა
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setRecoveryTab("backup"); setError(null); setSuccessMsg(null); }}
+                  className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                    recoveryTab === "backup" ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  სარეზერვო ასლი
+                </button>
+              </div>
+
+              {error && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold">
+                  {error}
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 animate-pulse" />
+                  {successMsg}
+                </div>
+              )}
+
+              {/* Recovery Tab Details */}
+              {recoveryTab === "password" && (
+                <form onSubmit={handleResetPassword} className="space-y-4">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    შეიყვანეთ თქვენი ელ-ფოსტის მისამართი. თუ Supabase აქტიურია, მიიღებთ პაროლის შეცვლის ბმულს.
+                  </p>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-500" />
+                    <input
+                      type="email"
+                      required
+                      placeholder="მაგალითი: username@mail.com"
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-xs text-white"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {loading ? "გთხოვთ დაელოდოთ..." : "აღდგენის ბმულის გაგზავნა"}
+                    <Key className="w-4 h-4" />
+                  </button>
+                </form>
+              )}
+
+              {recoveryTab === "email" && (
+                <div className="space-y-4">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    თუ დაგავიწყდათ ელ-ფოსტის მისამართი, შეგვიძლია მოვძებნოთ ამ მოწყობილობაზე შენახული ბოლო აქტიური ჩანაწერი.
+                  </p>
+
+                  {cachedEmail ? (
+                    <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/15 rounded-xl space-y-2">
+                      <span className="text-[9px] font-extrabold text-indigo-400 uppercase tracking-wider block">
+                        ამ მოწყობილობაზე ნაპოვნი ელ-ფოსტა:
+                      </span>
+                      <div className="flex items-center justify-between bg-slate-950 px-3 py-2 rounded-lg border border-slate-850">
+                        <span className="font-mono text-xs text-indigo-200 select-all font-semibold">{cachedEmail}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(cachedEmail);
+                            setSuccessMsg("ელ-ფოსტა წარმატებით დაკოპირდა მეხსიერებაში!");
+                          }}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold hover:underline cursor-pointer"
+                        >
+                          კოპირება
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-slate-950 border border-slate-850 rounded-xl text-center text-xs text-slate-400 leading-normal">
+                      ამ ბრაუზერის ლოკალურ მეხსიერებაში ავტორიზაციის ისტორია არ მოიძებნა.
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      ძებნა ბიზნესის დასახელებით (ლოკალური ქეში):
+                    </label>
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-500" />
+                      <input
+                        type="text"
+                        placeholder="ჩაწერეთ ბიზნესის დასახელება..."
+                        value={recoveryBusinessName}
+                        onChange={(e) => {
+                          setRecoveryBusinessName(e.target.value);
+                          try {
+                            const savedBus = localStorage.getItem("vxcrm_businesses");
+                            if (savedBus) {
+                              const parsed = JSON.parse(savedBus);
+                              const match = parsed.find((b: any) => 
+                                b.name.toLowerCase().includes(e.target.value.toLowerCase()) ||
+                                (b.ownerName && b.ownerName.toLowerCase().includes(e.target.value.toLowerCase()))
+                              );
+                              if (match && e.target.value.length > 2) {
+                                setSuggestedEmail(localStorage.getItem("vxcrm_last_active_email") || match.email || "ნაპოვნია ლოკალური მონაცემები");
+                              } else {
+                                setSuggestedEmail(null);
+                              }
+                            }
+                          } catch (err) {}
+                        }}
+                        className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-xs text-white"
+                      />
+                    </div>
+                  </div>
+
+                  {suggestedEmail && (
+                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/15 text-emerald-400 rounded-xl text-xs space-y-1">
+                      <span className="text-[9px] font-bold uppercase text-emerald-500 block">შემოთავაზებული ელ-ფოსტა:</span>
+                      <div className="flex items-center justify-between bg-slate-950 p-2 rounded-lg border border-slate-850">
+                        <span className="font-mono text-white select-all font-semibold">{suggestedEmail}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(suggestedEmail);
+                            setSuccessMsg("დაკოპირდა!");
+                          }}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold hover:underline cursor-pointer"
+                        >
+                          კოპირება
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {recoveryTab === "backup" && (
+                <div className="space-y-4">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    რათა <b>თქვენი მონაცემები არასოდეს დაიკარგოს</b>, ნებისმიერ დროს ჩამოტვირთეთ მთლიანი CRM მონაცემთა ბაზის უსაფრთხო სარეზერვო ფაილი.
+                  </p>
+
+                  <div className="grid grid-cols-1 gap-3.5">
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      className="w-full py-3 bg-slate-800 hover:bg-slate-750 text-slate-100 font-bold text-xs rounded-xl transition-all border border-slate-700 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 text-indigo-400" />
+                      მონაცემების ჩამოტვირთვა (JSON Backup)
+                    </button>
+
+                    <div className="border border-dashed border-slate-800 rounded-2xl p-4 text-center space-y-2.5">
+                      <div className="mx-auto w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center border border-slate-800">
+                        <Upload className="w-4 h-4 text-indigo-400" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-tight">ატვირთეთ VisionX CRM სარეზერვო .json ფაილი აღსადგენად</p>
+                      <label className="inline-block px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg transition-all cursor-pointer">
+                        ფაილის არჩევა
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleImportBackup}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : isSupabaseConfigured ? (
             <form onSubmit={handleAuth} className="space-y-4">
               <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
                 <button
                   type="button"
                   onClick={() => { setIsSignUp(false); setError(null); }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                     !isSignUp ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
@@ -326,7 +730,7 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
                 <button
                   type="button"
                   onClick={() => { setIsSignUp(true); setError(null); }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                     isSignUp ? "bg-indigo-600 text-white shadow-md" : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
@@ -402,11 +806,22 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? "გთხოვთ დაელოდოთ..." : isSignUp ? "რეგისტრაცია" : "შესვლა"}
                 <ChevronRight className="w-4 h-4" />
               </button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowRecovery(true); setError(null); setSuccessMsg(null); }}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold hover:underline cursor-pointer"
+                  id="forgot-password-recovery-link"
+                >
+                  დაგავიწყდათ პაროლი ან ელ-ფოსტა?
+                </button>
+              </div>
             </form>
           ) : (
             <div className="space-y-4">
@@ -420,15 +835,27 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
               <div className="space-y-2 pt-2">
                 <button
                   onClick={() => onContinueLocal(true)}
-                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all border border-slate-700/60 flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all border border-slate-700/60 flex items-center justify-center gap-2 cursor-pointer"
                 >
                   ცარიელი CRM-ის გახსნა (ლოკალური)
                 </button>
                 <button
                   onClick={() => onContinueLocal(false)}
-                  className="w-full py-2.5 bg-transparent hover:bg-slate-800/30 text-slate-400 hover:text-slate-200 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="w-full py-2.5 bg-transparent hover:bg-slate-800/30 text-slate-400 hover:text-slate-200 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   დემო მონაცემებით ტესტირება (ლოკალური)
+                </button>
+              </div>
+
+              <div className="border-t border-slate-850 pt-4 mt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowRecovery(true); setError(null); setSuccessMsg(null); setRecoveryTab("backup"); }}
+                  className="w-full py-2.5 bg-indigo-950/40 hover:bg-indigo-900/30 text-indigo-400 font-bold text-xs rounded-xl transition-all border border-indigo-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                  id="local-recovery-backup-link"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  მონაცემთა სარეზერვო ასლი & აღდგენა
                 </button>
               </div>
             </div>

@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { X, User, Sparkles, UserSquare2, Calendar, Clock, DollarSign, MessageSquare } from "lucide-react";
-import { Booking, Client, Service, Staff } from "../types";
+import { X, User, Sparkles, UserSquare2, Calendar, Clock, DollarSign, Euro, MessageSquare } from "lucide-react";
+import { Booking, Client, Service, Staff, formatPrice } from "../types";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ interface BookingModalProps {
   staff: Staff[];
   selectedBusinessId: string;
   defaultDate?: string;
+  currency?: "GEL" | "USD" | "EUR";
 }
 
 export default function BookingModal({
@@ -30,7 +31,8 @@ export default function BookingModal({
   services,
   staff,
   selectedBusinessId,
-  defaultDate
+  defaultDate,
+  currency = "GEL"
 }: BookingModalProps) {
   const [clientId, setClientId] = useState("");
   const [serviceId, setServiceId] = useState("");
@@ -50,9 +52,11 @@ export default function BookingModal({
   const [newClientName, setNewClientName] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
   const [newClientNotes, setNewClientNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   // Update form fields if editing a booking
   useEffect(() => {
+    setError(null);
     if (bookingToEdit) {
       setClientId(bookingToEdit.clientId);
       setServiceId(bookingToEdit.serviceId);
@@ -80,8 +84,9 @@ export default function BookingModal({
   }, [bookingToEdit, isOpen, clients, services, staff, defaultDate]);
 
   const handleQuickAddClient = async () => {
+    setError(null);
     if (!newClientName.trim() || !newClientPhone.trim()) {
-      alert("გთხოვთ მიუთითოთ კლიენტის სახელი და ტელეფონის ნომერი");
+      setError("გთხოვთ მიუთითოთ კლიენტის სახელი და ტელეფონის ნომერი");
       return;
     }
 
@@ -100,10 +105,11 @@ export default function BookingModal({
           setNewClientName("");
           setNewClientPhone("");
           setNewClientNotes("");
+          setError(null);
         }
       } catch (err) {
         console.error("Error during quick client creation:", err);
-        alert("კლიენტის დამატება ვერ მოხერხდა");
+        setError("კლიენტის დამატება ვერ მოხერხდა");
       }
     }
   };
@@ -122,8 +128,9 @@ export default function BookingModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!clientId || !serviceId || !staffId || !date || !time) {
-      alert("გთხოვთ შეავსოთ ყველა აუცილებელი ველი");
+      setError("გთხოვთ შეავსოთ ყველა აუცილებელი ველი");
       return;
     }
 
@@ -132,10 +139,7 @@ export default function BookingModal({
 
     let shouldTriggerSms = false;
     if (sendSms && clientPhone) {
-      const confirmSend = confirm(`გსურთ თუ არა გაიგზავნოს შეტყობინება ნომერზე: ${clientPhone}?`);
-      if (confirmSend) {
-        shouldTriggerSms = true;
-      }
+      shouldTriggerSms = true;
     }
 
     onSave({
@@ -179,6 +183,12 @@ export default function BookingModal({
 
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+          {error && (
+            <div className="p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-lg flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
           {/* Client Select */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -227,7 +237,7 @@ export default function BookingModal({
                 <option value="" disabled>აირჩიეთ მომსახურება</option>
                 {services.map(s => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.price}₾)
+                    {s.name} ({formatPrice(s.price, currency)})
                   </option>
                 ))}
               </select>
@@ -348,8 +358,14 @@ export default function BookingModal({
             {/* Price Editable */}
             <div>
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5 text-indigo-500" />
-                ფასი (₾) <span className="text-rose-500">*</span>
+                {currency === "USD" ? (
+                  <DollarSign className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                ) : currency === "EUR" ? (
+                  <Euro className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                ) : (
+                  <span className="w-3.5 h-3.5 text-indigo-500 font-bold leading-none select-none text-[13px] flex items-center justify-center shrink-0">₾</span>
+                )}
+                ფასი ({currency === "USD" ? "$" : currency === "EUR" ? "€" : "₾"}) <span className="text-rose-500">*</span>
               </label>
               <input
                 type="number"

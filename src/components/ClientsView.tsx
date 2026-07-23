@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Search, Plus, UserPlus, Phone, Mail, FileText, Trash2, Edit2, Wallet, CalendarRange, Download, FileSpreadsheet } from "lucide-react";
-import { Client } from "../types";
+import { Client, formatPrice } from "../types";
+import ConfirmModal from "./ConfirmModal";
 
 export const tagStyles: Record<string, { bg: string, dot: string, label: string }> = {
   "წარმატებული გარიგება": {
@@ -30,22 +31,27 @@ interface ClientsViewProps {
   onAddClient: (client: Omit<Client, "id" | "totalBookings" | "totalSpent">) => void;
   onEditClient: (client: Client) => void;
   onDeleteClient: (id: string) => void;
+  currency?: "GEL" | "USD" | "EUR";
 }
 
 export default function ClientsView({
   clients,
   onAddClient,
   onEditClient,
-  onDeleteClient
+  onDeleteClient,
+  currency = "GEL"
 }: ClientsViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>("all");
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // CSV Export for Clients
   const handleExportCSV = () => {
-    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", "ჯამური დანახარჯი (₾)", "შენიშვნა"];
+    const currencySign = currency === "USD" ? "$" : currency === "EUR" ? "€" : "₾";
+    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", `ჯამური დანახარჯი (${currencySign})`, "შენიშვნა"];
     const rows = clients.map(c => [
       c.name,
       c.phone,
@@ -78,6 +84,7 @@ export default function ClientsView({
   const [tag, setTag] = useState<string>("მუშაობის პროცესში");
 
   const handleOpenAdd = () => {
+    setError(null);
     setEditingClient(null);
     setName("");
     setPhone("");
@@ -88,6 +95,7 @@ export default function ClientsView({
   };
 
   const handleOpenEdit = (client: Client) => {
+    setError(null);
     setEditingClient(client);
     setName(client.name);
     setPhone(client.phone);
@@ -99,8 +107,9 @@ export default function ClientsView({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !phone) {
-      alert("გთხოვთ მიუთითოთ კლიენტის სახელი და ტელეფონი");
+    setError(null);
+    if (!name.trim() || !phone.trim()) {
+      setError("გთხოვთ მიუთითოთ კლიენტის სახელი და ტელეფონი");
       return;
     }
 
@@ -125,14 +134,17 @@ export default function ClientsView({
     setShowModal(false);
   };
 
-  // Filter clients based on search query and tag filter
-  const filteredClients = clients.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery) ||
-      c.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTag = selectedTagFilter === "all" || c.tag === selectedTagFilter;
-    return matchesSearch && matchesTag;
-  });
+  // Filter clients based on search query and tag filter (memoized for high load performance)
+  const filteredClients = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return clients.filter(c => {
+      const matchesSearch = c.name.toLowerCase().includes(query) ||
+        c.phone.includes(searchQuery) ||
+        (c.email && c.email.toLowerCase().includes(query));
+      const matchesTag = selectedTagFilter === "all" || c.tag === selectedTagFilter;
+      return matchesSearch && matchesTag;
+    });
+  }, [clients, searchQuery, selectedTagFilter]);
 
   return (
     <div className="space-y-5">
@@ -285,11 +297,7 @@ export default function ClientsView({
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`ნამდვილად გსურთ კლიენტის (${client.name}) წაშლა?`)) {
-                          onDeleteClient(client.id);
-                        }
-                      }}
+                      onClick={() => setClientToDelete(client)}
                       className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-400 hover:text-rose-600 dark:hover:text-rose-300 rounded transition-colors cursor-pointer"
                       title="წაშლა"
                     >
@@ -340,7 +348,7 @@ export default function ClientsView({
                   </span>
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-center gap-0.5 mt-0.5">
                     <Wallet className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    {client.totalSpent}₾
+                    {formatPrice(client.totalSpent, currency)}
                   </span>
                 </div>
               </div>
@@ -367,6 +375,12 @@ export default function ClientsView({
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-slate-800 dark:text-slate-200">
+              {error && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 text-xs font-bold rounded-lg flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                   სახელი და გვარი <span className="text-rose-500">*</span>
@@ -484,6 +498,21 @@ export default function ClientsView({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={clientToDelete !== null}
+        onClose={() => setClientToDelete(null)}
+        onConfirm={() => {
+          if (clientToDelete) {
+            onDeleteClient(clientToDelete.id);
+          }
+        }}
+        title="კლიენტის წაშლა"
+        message={clientToDelete ? `ნამდვილად გსურთ კლიენტის (${clientToDelete.name}) წაშლა? წაიშლება კლიენტთან დაკავშირებული ყველა ჯავშანი და შეხსენება.` : ""}
+        confirmText="წაშლა"
+        cancelText="გაუქმება"
+        variant="danger"
+      />
     </div>
   );
 }

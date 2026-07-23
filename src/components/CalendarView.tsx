@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, User, Clock, CheckCircle } from "lucide-react";
-import { Booking, Client, Service, Staff, Business } from "../types";
+import { Booking, Client, Service, Staff, Business, formatPrice } from "../types";
 import { getGeorgianDate } from "./Dashboard";
 
 interface CalendarViewProps {
@@ -362,7 +362,7 @@ export default function CalendarView({
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <span className="text-xs font-extrabold text-slate-800 block">{b.price}₾</span>
+                            <span className="text-xs font-extrabold text-slate-800 block">{formatPrice(b.price, selectedBusiness.currency)}</span>
                             <span className="text-[9px] text-indigo-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">რედაქტირება</span>
                           </div>
                         </div>
@@ -441,7 +441,7 @@ export default function CalendarView({
                             </div>
                           </div>
                           <div className="text-right shrink-0 ml-1">
-                            <span className="font-extrabold text-slate-800 block">{b.price}₾</span>
+                            <span className="font-extrabold text-slate-800 block">{formatPrice(b.price, selectedBusiness.currency)}</span>
                             <span className={`inline-block text-[7px] font-bold px-1 rounded-sm mt-0.5 ${
                               b.status === "დასრულებული" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
                             }`}>
@@ -584,7 +584,7 @@ export default function CalendarView({
                     <span className="truncate">{getClientName(b.clientId)}</span>
                   </div>
                   <div className="text-[11px] text-slate-500 font-semibold pl-5">
-                    {getServiceName(b.serviceId)} — <span className="font-bold text-slate-800">{b.price}₾</span>
+                    {getServiceName(b.serviceId)} — <span className="font-bold text-slate-800">{formatPrice(b.price, selectedBusiness.currency)}</span>
                   </div>
                   <div className="text-[11px] text-slate-400 pl-5">
                     სპეციალისტი: <span className="text-slate-500 font-bold">{getStaffName(b.staffId)}</span>

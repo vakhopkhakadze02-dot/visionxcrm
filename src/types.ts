@@ -13,6 +13,17 @@ export interface Business {
   address?: string;
   category?: string; // e.g., "სილამაზის სალონი", "ავტოსერვისი", "სტომატოლოგია"
   logoColor: string; // Tailwind bg color class
+  currency?: "GEL" | "USD" | "EUR";
+}
+
+export function formatPrice(price: number, currency: "GEL" | "USD" | "EUR" = "GEL"): string {
+  if (currency === "USD") {
+    return `$${price}`;
+  }
+  if (currency === "EUR") {
+    return `€${price}`;
+  }
+  return `${price} ₾`;
 }
 
 export interface Client {

@@ -37,6 +37,7 @@ interface SidebarProps {
   onClose: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onUpdateCurrency: (currency: "GEL" | "USD" | "EUR") => void;
 }
 
 export default function Sidebar({
@@ -51,7 +52,8 @@ export default function Sidebar({
   isOpen,
   onClose,
   theme,
-  onToggleTheme
+  onToggleTheme,
+  onUpdateCurrency
 }: SidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -152,6 +154,31 @@ export default function Sidebar({
             </div>
           </div>
           <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
+        </div>
+
+        {/* Currency Switcher */}
+        <div className="mt-3 px-1.5 py-1 bg-slate-900/40 border border-slate-800/65 rounded-lg flex items-center justify-between">
+          <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">ვალუტა:</span>
+          <div className="flex bg-slate-950 p-0.5 rounded-md border border-slate-850 shrink-0">
+            {(["GEL", "USD", "EUR"] as const).map((curr) => {
+              const active = selectedBusiness.currency === curr || (!selectedBusiness.currency && curr === "GEL");
+              return (
+                <button
+                  key={curr}
+                  type="button"
+                  onClick={() => onUpdateCurrency(curr)}
+                  className={`px-2 py-0.5 text-[9px] font-extrabold rounded-md transition-all cursor-pointer ${
+                    active
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                  title={curr === "GEL" ? "ქართული ლარი (₾)" : curr === "USD" ? "აშშ დოლარი ($)" : "ევრო (€)"}
+                >
+                  {curr === "GEL" ? "₾" : curr === "USD" ? "$" : "€"}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Business Dropdown Menu */}

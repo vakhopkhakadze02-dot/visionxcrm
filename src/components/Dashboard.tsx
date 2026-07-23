@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Calendar, TrendingUp, Clock, CalendarDays, Edit2, CheckCircle, XCircle, Trash2, User, Sparkles } from "lucide-react";
-import { Booking, Client, Service, Staff, Business } from "../types";
+import { Booking, Client, Service, Staff, Business, formatPrice } from "../types";
+import KPIDetailsModal from "./KPIDetailsModal";
+import ConfirmModal from "./ConfirmModal";
 
 interface DashboardProps {
   selectedBusiness: Business;
@@ -54,6 +56,9 @@ export default function Dashboard({
   
   // Filter bookings for today (2026-07-12) and current business
   const todayStr = "2026-07-12";
+
+  const [selectedKPI, setSelectedKPI] = useState<"today_bookings" | "today_revenue" | "today_pending" | "total_revenue" | "cancelled_bookings" | "completed_bookings" | "total_bookings" | null>(null);
+  const [bookingToDelete, setBookingToDelete] = useState<string | null>(null);
 
   const businessBookings = useMemo(() => {
     return bookings.filter(b => b.businessId === selectedBusiness.id);
@@ -109,49 +114,70 @@ export default function Dashboard({
       {/* Statistics Cards (High Density Theme) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Card 1 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-xs">
+        <button
+          onClick={() => setSelectedKPI("today_bookings")}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-xs hover:scale-[1.02] active:scale-[0.98] hover:border-indigo-300 dark:hover:border-indigo-700 transition-all text-left w-full cursor-pointer group"
+          id="kpi-card-today-bookings"
+        >
           <div className="space-y-0.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block leading-none">
               დღევანდელი ჯავშნები
             </span>
-            <span className="text-2xl font-bold text-slate-900 dark:text-white font-display block leading-none">
+            <span className="text-2xl font-bold text-slate-900 dark:text-white font-display block mt-1.5 leading-none">
               {todayBookingsCount}
             </span>
+            <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
+            </span>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/40 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/60 shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/40 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/60 shrink-0 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/50 transition-colors">
             <Calendar className="w-4.5 h-4.5 text-indigo-600 dark:text-indigo-400" />
           </div>
-        </div>
+        </button>
 
         {/* Card 2 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-xs">
+        <button
+          onClick={() => setSelectedKPI("today_revenue")}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-xs hover:scale-[1.02] active:scale-[0.98] hover:border-teal-300 dark:hover:border-emerald-700 transition-all text-left w-full cursor-pointer group"
+          id="kpi-card-today-revenue"
+        >
           <div className="space-y-0.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block leading-none">
               დღევანდელი შემოსავალი
             </span>
-            <span className="text-2xl font-bold text-slate-900 dark:text-white font-display block leading-none">
-              {todayRevenue}₾
+            <span className="text-2xl font-bold text-slate-900 dark:text-white font-display block mt-1.5 leading-none">
+              {formatPrice(todayRevenue, selectedBusiness.currency)}
+            </span>
+            <span className="text-[9px] text-teal-600 dark:text-emerald-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
             </span>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-teal-50 dark:bg-emerald-950/40 flex items-center justify-center border border-teal-100 dark:border-emerald-900/60 shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-teal-50 dark:bg-emerald-950/40 flex items-center justify-center border border-teal-100 dark:border-emerald-900/60 shrink-0 group-hover:bg-teal-100 dark:group-hover:bg-teal-900/50 transition-colors">
             <TrendingUp className="w-4.5 h-4.5 text-teal-600 dark:text-emerald-400" />
           </div>
-        </div>
+        </button>
 
         {/* Card 3 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-xs">
+        <button
+          onClick={() => setSelectedKPI("today_pending")}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-xs hover:scale-[1.02] active:scale-[0.98] hover:border-amber-300 dark:hover:border-amber-700 transition-all text-left w-full cursor-pointer group"
+          id="kpi-card-today-pending"
+        >
           <div className="space-y-0.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block leading-none">
               მოლოდინში
             </span>
-            <span className="text-2xl font-bold text-slate-900 dark:text-white font-display block leading-none">
+            <span className="text-2xl font-bold text-slate-900 dark:text-white font-display block mt-1.5 leading-none">
               {pendingCount}
             </span>
+            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
+              დეტალურად &rarr;
+            </span>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center border border-amber-100 dark:border-amber-900/60 shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center border border-amber-100 dark:border-amber-900/60 shrink-0 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/50 transition-colors">
             <Clock className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400" />
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Today's Bookings Main Panel (High Density Table Style) */}
@@ -213,7 +239,7 @@ export default function Dashboard({
                         <span className="text-slate-300 dark:text-slate-700">|</span>
                         <span>{getServiceDuration(booking.serviceId)} წუთი</span>
                         <span className="text-slate-300 dark:text-slate-700">|</span>
-                        <span className="font-extrabold text-slate-800 dark:text-slate-200">{booking.price}₾</span>
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200">{formatPrice(booking.price, selectedBusiness.currency)}</span>
                         <span className="text-slate-300 dark:text-slate-700">|</span>
                         <span className="text-[10px] text-slate-400 dark:text-slate-500">
                           სპეციალისტი: <span className="text-slate-600 dark:text-slate-400 font-bold">{getStaffName(booking.staffId)}</span>
@@ -269,11 +295,7 @@ export default function Dashboard({
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => {
-                          if (confirm("ნამდვილად გსურთ ამ ჯავშნის წაშლა?")) {
-                            onDeleteBooking(booking.id);
-                          }
-                        }}
+                        onClick={() => setBookingToDelete(booking.id)}
                         title="წაშლა"
                         className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-400 hover:text-rose-600 rounded transition-colors border border-transparent hover:border-rose-100 dark:hover:border-rose-900/40"
                       >
@@ -287,6 +309,32 @@ export default function Dashboard({
           )}
         </div>
       </div>
+
+      <KPIDetailsModal
+        isOpen={selectedKPI !== null}
+        onClose={() => setSelectedKPI(null)}
+        selectedBusiness={selectedBusiness}
+        kpiType={selectedKPI}
+        bookings={bookings}
+        clients={clients}
+        services={services}
+        staff={staff}
+      />
+
+      <ConfirmModal
+        isOpen={bookingToDelete !== null}
+        onClose={() => setBookingToDelete(null)}
+        onConfirm={() => {
+          if (bookingToDelete) {
+            onDeleteBooking(bookingToDelete);
+          }
+        }}
+        title="ჯავშნის წაშლა"
+        message="ნამდვილად გსურთ ამ ჯავშნის წაშლა? ეს ქმედება შეუქცევადია."
+        confirmText="წაშლა"
+        cancelText="გაუქმება"
+        variant="danger"
+      />
     </div>
   );
 }

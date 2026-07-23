@@ -50,17 +50,32 @@ import {
 } from "./initialData";
 
 // --- DB DATA MAPPERS ---
-const mapBusinessFromDB = (b: any): Business => ({
-  id: b.id,
-  name: b.name,
-  ownerName: b.owner_name,
-  role: b.role,
-  phone: b.phone || "",
-  email: b.email || "",
-  address: b.address || "",
-  category: b.category || "",
-  logoColor: b.logo_color || "bg-indigo-600 text-white"
-});
+const getBusinessCurrency = (businessId: string): "GEL" | "USD" | "EUR" => {
+  try {
+    const currencies = localStorage.getItem("vxcrm_business_currencies");
+    if (currencies) {
+      const parsed = JSON.parse(currencies);
+      return parsed[businessId] || "GEL";
+    }
+  } catch (e) {}
+  return "GEL";
+};
+
+const mapBusinessFromDB = (b: any): Business => {
+  const currency = getBusinessCurrency(b.id);
+  return {
+    id: b.id,
+    name: b.name,
+    ownerName: b.owner_name,
+    role: b.role,
+    phone: b.phone || "",
+    email: b.email || "",
+    address: b.address || "",
+    category: b.category || "",
+    logoColor: b.logo_color || "bg-indigo-600 text-white",
+    currency
+  };
+};
 
 const mapBusinessToDB = (b: Business, userId: string) => ({
   id: b.id,
@@ -95,6 +110,18 @@ const mapClientToDB = (c: Client, userId: string) => ({
   notes: c.notes || null,
   tag: c.tag || null
 });
+
+const isSchemaCacheOrTagError = (err: any) => {
+  if (!err) return false;
+  const msg = (err.message || "").toLowerCase();
+  const code = (err.code || "").toString();
+  return (
+    code === "PGRST204" ||
+    code === "42703" ||
+    msg.includes("schema cache") ||
+    (msg.includes("column") && msg.includes("tag"))
+  );
+};
 
 const mapServiceFromDB = (s: any): Service => ({
   id: s.id,
@@ -229,25 +256,42 @@ export default function App() {
   const [supabaseFetchError, setSupabaseFetchError] = useState<any>(null);
   const [showDbGuide, setShowDbGuide] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [showDbMigrationWarning, setShowDbMigrationWarning] = useState<boolean>(false);
+  const [dbErrorDetail, setDbErrorDetail] = useState<string | null>(null);
+  const [migrationCopied, setMigrationCopied] = useState<boolean>(false);
 
   // State lists
   const [businesses, setBusinesses] = useState<Business[]>(() => {
     const saved = localStorage.getItem("vxcrm_businesses");
     const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialBusinesses : []);
+    const rawBus = saved ? JSON.parse(saved) : (isInitiallyLocal ? initialBusinesses : []);
+    return rawBus.map((b: any) => ({
+      ...b,
+      currency: b.currency || getBusinessCurrency(b.id)
+    }));
   });
   const [selectedBusiness, setSelectedBusiness] = useState<Business>(() => {
     const saved = localStorage.getItem("vxcrm_selected_business");
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        ...parsed,
+        currency: parsed.currency || getBusinessCurrency(parsed.id)
+      };
+    }
     const savedBus = localStorage.getItem("vxcrm_businesses");
     const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
     const parsedBus = savedBus ? JSON.parse(savedBus) : (isInitiallyLocal ? initialBusinesses : []);
-    return parsedBus[0] || {
+    const firstBus = parsedBus[0] || {
       id: "bus_loading",
       name: "იტვირთება...",
       ownerName: "...",
       role: "მფლობელი",
       logoColor: "bg-slate-300"
+    };
+    return {
+      ...firstBus,
+      currency: firstBus.currency || getBusinessCurrency(firstBus.id)
     };
   });
   const [clients, setClients] = useState<Client[]>(() => {
@@ -307,6 +351,7 @@ export default function App() {
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [bookingToEdit, setBookingToEdit] = useState<Booking | null>(null);
   const [bookingDefaultDate, setBookingDefaultDate] = useState<string>("2026-07-12");
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Sync session and auth states
   useEffect(() => {
@@ -416,12 +461,6 @@ export default function App() {
       const loadedStaff = stfRes.data.map(mapStaffFromDB);
       const loadedBookings = bokRes.data.map(mapBookingFromDB);
 
-      setBusinesses(loadedBusinesses);
-      setClients(loadedClients);
-      setServices(loadedServices);
-      setStaff(loadedStaff);
-      setBookings(loadedBookings);
-
       // Safe fetch for followups to avoid breaking if table is not created yet
       let loadedFollowups: Followup[] = [];
       try {
@@ -438,28 +477,142 @@ export default function App() {
         const saved = localStorage.getItem("vxcrm_followups");
         loadedFollowups = saved ? JSON.parse(saved) : [];
       }
-      setFollowups(loadedFollowups);
+
+      // Verify if 'tag' column exists in 'clients' table
+      const { error: tagCheckErr } = await supabase.from("clients").select("tag").limit(1);
+      if (tagCheckErr && (tagCheckErr.code === "42703" || (tagCheckErr.message?.toLowerCase().includes("column") && tagCheckErr.message?.toLowerCase().includes("tag")))) {
+        setShowDbMigrationWarning(true);
+        setDbErrorDetail(tagCheckErr.message);
+      } else {
+        setShowDbMigrationWarning(false);
+        setDbErrorDetail(null);
+      }
 
       if (loadedBusinesses.length > 0) {
+        setBusinesses(loadedBusinesses);
+        setClients(loadedClients);
+        setServices(loadedServices);
+        setStaff(loadedStaff);
+        setBookings(loadedBookings);
+        setFollowups(loadedFollowups);
         setSelectedBusiness(loadedBusinesses[0]);
       } else {
-        // Automatically provision their first business matching their sign up metadata
+        // First-time logged-in user with empty Supabase: upload local data or seed initial mock data
         const metadata = session?.user?.user_metadata || {};
-        const defaultBus: Business = {
+        
+        // 1. Seed Business
+        const savedBus = localStorage.getItem("vxcrm_businesses");
+        const localBusList: Business[] = savedBus ? JSON.parse(savedBus) : [];
+        const defaultBus: Business = localBusList[0] || {
           id: `bus_${Date.now()}`,
           name: metadata.business_name || "ჩემი ბიზნესი",
           ownerName: metadata.owner_name || "მფლობელი",
           role: "მფლობელი",
-          logoColor: "bg-indigo-600 text-white"
+          logoColor: "bg-indigo-600 text-white",
+          category: "სალონი"
         };
         await supabase.from("businesses").insert(mapBusinessToDB(defaultBus, userId));
         setBusinesses([defaultBus]);
         setSelectedBusiness(defaultBus);
+
+        // 2. Seed Clients
+        const savedCli = localStorage.getItem("vxcrm_clients");
+        const localCliList: Client[] = savedCli ? JSON.parse(savedCli) : (loadedClients.length === 0 ? initialClients : []);
+        if (localCliList.length > 0) {
+          const cliToInsert = localCliList.map(c => mapClientToDB(c, userId));
+          const { error } = await supabase.from("clients").insert(cliToInsert);
+          if (!error) {
+            setClients(localCliList);
+          } else {
+            console.warn("Error seeding clients to Supabase:", error);
+            setClients([]);
+          }
+        } else {
+          setClients([]);
+        }
+
+        // 3. Seed Services
+        const savedSer = localStorage.getItem("vxcrm_services");
+        const localSerList: Service[] = savedSer ? JSON.parse(savedSer) : (loadedServices.length === 0 ? initialServices : []);
+        if (localSerList.length > 0) {
+          const serToInsert = localSerList.map(s => mapServiceToDB(s, userId));
+          const { error } = await supabase.from("services").insert(serToInsert);
+          if (!error) {
+            setServices(localSerList);
+          } else {
+            console.warn("Error seeding services to Supabase:", error);
+            setServices([]);
+          }
+        } else {
+          setServices([]);
+        }
+
+        // 4. Seed Staff
+        const savedStf = localStorage.getItem("vxcrm_staff");
+        const localStfList: Staff[] = savedStf ? JSON.parse(savedStf) : (loadedStaff.length === 0 ? initialStaff : []);
+        if (localStfList.length > 0) {
+          const stfToInsert = localStfList.map(s => mapStaffToDB(s, userId));
+          const { error } = await supabase.from("staff").insert(stfToInsert);
+          if (!error) {
+            setStaff(localStfList);
+          } else {
+            console.warn("Error seeding staff to Supabase:", error);
+            setStaff([]);
+          }
+        } else {
+          setStaff([]);
+        }
+
+        // 5. Seed Bookings
+        const savedBok = localStorage.getItem("vxcrm_bookings");
+        const localBokList: Booking[] = savedBok ? JSON.parse(savedBok) : (loadedBookings.length === 0 ? initialBookings : []);
+        if (localBokList.length > 0) {
+          const bokToInsert = localBokList.map(b => mapBookingToDB(b, userId));
+          const { error } = await supabase.from("bookings").insert(bokToInsert);
+          if (!error) {
+            setBookings(localBokList);
+          } else {
+            console.warn("Error seeding bookings to Supabase:", error);
+            setBookings([]);
+          }
+        } else {
+          setBookings([]);
+        }
+
+        // 6. Seed Followups
+        const savedFol = localStorage.getItem("vxcrm_followups");
+        const localFolList: Followup[] = savedFol ? JSON.parse(savedFol) : [];
+        if (localFolList.length > 0) {
+          const folToInsert = localFolList.map(f => mapFollowupToDB(f, userId));
+          await supabase.from("followups").insert(folToInsert);
+          setFollowups(localFolList);
+        } else {
+          setFollowups([]);
+        }
       }
     } catch (err: any) {
       // Use console.warn instead of console.error to avoid triggering automated testing alerts
       console.warn("Error fetching user data from Supabase:", err);
       setSupabaseFetchError(err);
+    }
+  };
+
+  const handleVerifyMigration = async () => {
+    if (!session?.user?.id) return;
+    try {
+      // Query clients table requesting the tag column specifically to verify if it's available
+      const { error } = await supabase.from("clients").select("tag").limit(1);
+      if (error) throw error;
+      
+      // If it succeeded, refresh the user data
+      await fetchUserData(session.user.id);
+      setShowDbMigrationWarning(false);
+      setDbErrorDetail(null);
+      showDemoToast("ბაზა განახლდა!", "მიგრაცია წარმატებულია", "კავშირი აღდგენილია და ახალი სვეტი აქტიურია.");
+    } catch (err: any) {
+      const errMsg = err?.message || JSON.stringify(err);
+      setDbErrorDetail(errMsg);
+      showDemoToast("კავშირი ვერ დამყარდა", "მიგრაცია", `ბაზა კვლავ აბრუნებს შეცდომას: ${errMsg}`);
     }
   };
 
@@ -752,7 +905,7 @@ export default function App() {
 
     if (isSMS) {
       if (!isTwilioConfigured) {
-        alert("გთხოვთ ჯერ შეავსოთ Twilio-ს პარამეტრები!");
+        showDemoToast("შეცდომა პარამეტრებში", "Twilio შეტყობინება", "გთხოვთ ჯერ შეავსოთ Twilio-ს პარამეტრები პარამეტრების მენიუდან.");
         return false;
       }
       try {
@@ -797,7 +950,7 @@ export default function App() {
       }
     } else {
       if (!isEmailJSConfigured) {
-        alert("გთხოვთ ჯერ შეავსოთ EmailJS-ის პარამეტრები!");
+        showDemoToast("შეცდომა პარამეტრებში", "EmailJS შეტყობინება", "გთხოვთ ჯერ შეავსოთ EmailJS-ის პარამეტრები პარამეტრების მენიუდან.");
         return false;
       }
       try {
@@ -877,6 +1030,23 @@ export default function App() {
     setSelectedBusiness(newBus);
   };
 
+  const handleUpdateCurrency = (currency: "GEL" | "USD" | "EUR") => {
+    setSelectedBusiness(prev => {
+      const updated = { ...prev, currency };
+      try {
+        const stored = localStorage.getItem("vxcrm_business_currencies") || "{}";
+        const parsed = JSON.parse(stored);
+        parsed[prev.id] = currency;
+        localStorage.setItem("vxcrm_business_currencies", JSON.stringify(parsed));
+      } catch (e) {
+        console.warn("Error saving business currency in localStorage:", e);
+      }
+      return updated;
+    });
+
+    setBusinesses(prev => prev.map(b => b.id === selectedBusiness.id ? { ...b, currency } : b));
+  };
+
   const handleAddFollowup = async (followupData: Omit<Followup, "id" | "businessId">) => {
     const newFollowup: Followup = {
       ...followupData,
@@ -953,8 +1123,9 @@ export default function App() {
             .update(mapBookingToDB(bookingData as Booking, session.user.id))
             .eq("id", bookingData.id);
           if (error) throw error;
-        } catch (err) {
+        } catch (err: any) {
           console.warn("Error updating booking in Supabase:", err);
+          showDemoToast("სინქრონიზაციის შეცდომა", "ჯავშნის რედაქტირება", `ბაზაში ცვლილება ვერ შეინახა: ${err?.message || "უცნობი შეცდომა"}`);
         }
       }
       const updatedBooking = bookingData as Booking;
@@ -974,8 +1145,9 @@ export default function App() {
             .from("bookings")
             .insert(mapBookingToDB(newBooking, session.user.id));
           if (error) throw error;
-        } catch (err) {
+        } catch (err: any) {
           console.warn("Error creating booking in Supabase:", err);
+          showDemoToast("სინქრონიზაციის შეცდომა", "ჯავშნის დამატება", `ბაზაში ჩაწერა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
         }
       }
       setBookings(prev => [...prev, newBooking]);
@@ -991,8 +1163,9 @@ export default function App() {
           .delete()
           .eq("id", id);
         if (error) throw error;
-      } catch (err) {
+      } catch (err: any) {
         console.warn("Error deleting booking in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "ჯავშნის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
       }
     }
     setBookings(prev => prev.filter(b => b.id !== id));
@@ -1006,8 +1179,9 @@ export default function App() {
           .update({ status })
           .eq("id", id);
         if (error) throw error;
-      } catch (err) {
+      } catch (err: any) {
         console.warn("Error updating booking status in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "სტატუსის განახლება", `სტატუსი ვერ განახლდა ბაზაში: ${err?.message || "უცნობი შეცდომა"}`);
       }
     }
     setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
@@ -1023,12 +1197,32 @@ export default function App() {
 
     if (!isLocalMode && session?.user?.id) {
       try {
+        const payload = mapClientToDB(newClient, session.user.id);
         const { error } = await supabase
           .from("clients")
-          .insert(mapClientToDB(newClient, session.user.id));
-        if (error) throw error;
-      } catch (err) {
+          .insert(payload);
+        if (error) {
+          if (isSchemaCacheOrTagError(error)) {
+            // Fallback: retry without 'tag' field if schema cache issue
+            const { tag, ...payloadWithoutTag } = payload;
+            const { error: retryErr } = await supabase
+              .from("clients")
+              .insert(payloadWithoutTag);
+            if (retryErr) throw retryErr;
+            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტი შეინახა ტეგის გარეშე. PostgREST ქეშის განახლებისთვის გაუშვით: NOTIFY pgrst, 'reload schema';");
+          } else {
+            throw error;
+          }
+        }
+      } catch (err: any) {
         console.warn("Error adding client to Supabase:", err);
+        const errMsg = err?.message || JSON.stringify(err);
+        setDbErrorDetail(errMsg);
+        if (isSchemaCacheOrTagError(err)) {
+          setShowDbMigrationWarning(true);
+        } else {
+          showDemoToast("შეცდომა ბაზაში შენახვისას", "კლიენტის დამატება", `მონაცემის შენახვა ვერ მოხერხდა: ${errMsg}`);
+        }
       }
     }
 
@@ -1039,13 +1233,34 @@ export default function App() {
   const handleEditClient = async (updatedClient: Client) => {
     if (!isLocalMode && session?.user?.id) {
       try {
+        const payload = mapClientToDB(updatedClient, session.user.id);
         const { error } = await supabase
           .from("clients")
-          .update(mapClientToDB(updatedClient, session.user.id))
+          .update(payload)
           .eq("id", updatedClient.id);
-        if (error) throw error;
-      } catch (err) {
+        if (error) {
+          if (isSchemaCacheOrTagError(error)) {
+            // Fallback: retry update without 'tag' field so basic fields (name, phone, email, notes) still save!
+            const { tag, ...payloadWithoutTag } = payload;
+            const { error: retryErr } = await supabase
+              .from("clients")
+              .update(payloadWithoutTag)
+              .eq("id", updatedClient.id);
+            if (retryErr) throw retryErr;
+            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტის მონაცემები განახლდა (ტეგის გარეშე). PostgREST ქეშის განახლებისთვის გაუშვით: NOTIFY pgrst, 'reload schema';");
+          } else {
+            throw error;
+          }
+        }
+      } catch (err: any) {
         console.warn("Error editing client in Supabase:", err);
+        const errMsg = err?.message || JSON.stringify(err);
+        setDbErrorDetail(errMsg);
+        if (isSchemaCacheOrTagError(err)) {
+          setShowDbMigrationWarning(true);
+        } else {
+          showDemoToast("შეცდომა ბაზაში განახლებისას", "კლიენტის რედაქტირება", `ცვლილებების შენახვა ვერ მოხერხდა: ${errMsg}`);
+        }
       }
     }
     setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
@@ -1054,17 +1269,32 @@ export default function App() {
   const handleDeleteClient = async (id: string) => {
     if (!isLocalMode && session?.user?.id) {
       try {
+        // Delete bookings for this client in Supabase first to satisfy foreign key constraints
+        await supabase
+          .from("bookings")
+          .delete()
+          .eq("client_id", id);
+
+        // Delete followups for this client in Supabase first
+        await supabase
+          .from("followups")
+          .delete()
+          .eq("client_id", id);
+
+        // Now delete the client
         const { error } = await supabase
           .from("clients")
           .delete()
           .eq("id", id);
         if (error) throw error;
-      } catch (err) {
+      } catch (err: any) {
         console.warn("Error deleting client in Supabase:", err);
+        showDemoToast("შეცდომა წაშლისას", "კლიენტის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
       }
     }
     setClients(prev => prev.filter(c => c.id !== id));
     setBookings(prev => prev.filter(b => b.clientId !== id));
+    setFollowups(prev => prev.filter(f => f.clientId !== id));
   };
 
   const handleAddService = async (serviceData: Omit<Service, "id">) => {
@@ -1105,6 +1335,12 @@ export default function App() {
   const handleDeleteService = async (id: string) => {
     if (!isLocalMode && session?.user?.id) {
       try {
+        // Delete bookings for this service in Supabase first to satisfy foreign key constraints
+        await supabase
+          .from("bookings")
+          .delete()
+          .eq("service_id", id);
+
         const { error } = await supabase
           .from("services")
           .delete()
@@ -1156,6 +1392,12 @@ export default function App() {
   const handleDeleteStaff = async (id: string) => {
     if (!isLocalMode && session?.user?.id) {
       try {
+        // Delete bookings for this staff in Supabase first to satisfy foreign key constraints
+        await supabase
+          .from("bookings")
+          .delete()
+          .eq("staff_id", id);
+
         const { error } = await supabase
           .from("staff")
           .delete()
@@ -1189,22 +1431,28 @@ export default function App() {
     setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const executeLogout = async () => {
+    setShowLogoutConfirm(false);
     if (!isLocalMode && isSupabaseConfigured) {
-      if (confirm("ნამდვილად გსურთ სისტემიდან გასვლა?")) {
+      try {
         await supabase.auth.signOut();
-        setSession(null);
-        setIsLocalMode(true);
-        setHasChosenLocal(true);
-        localStorage.setItem("vxcrm_local_mode", "true");
-        window.location.reload();
-      }
-    } else {
-      if (confirm("ნამდვილად გსურთ გასვლა და მონაცემების საწყის ეტაპზე დაბრუნება (დემო რესეტი)?")) {
-        localStorage.clear();
-        window.location.reload();
+      } catch (err) {
+        console.warn("Supabase signOut error:", err);
       }
     }
+    setSession(null);
+    setIsLocalMode(true);
+    setHasChosenLocal(false);
+    if (isLocalMode) {
+      localStorage.clear();
+    } else {
+      localStorage.removeItem("vxcrm_local_mode");
+    }
+    window.location.reload();
   };
 
   const handleImportData = (importedData: {
@@ -1220,7 +1468,7 @@ export default function App() {
       setServices(importedData.services);
       setStaff(importedData.staff);
     } else {
-      alert("იმპორტის რეჟიმი ხელმისაწვდომია მხოლოდ ლოკალურ რეჟიმში.");
+      showDemoToast("ფუნქცია შეზღუდულია", "მონაცემების იმპორტი", "იმპორტის რეჟიმი ხელმისაწვდომია მხოლოდ ლოკალურ რეჟიმში.");
     }
   };
 
@@ -1286,7 +1534,8 @@ CREATE TABLE IF NOT EXISTS clients (
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
   email TEXT,
-  notes TEXT
+  notes TEXT,
+  tag TEXT
 );
 
 CREATE TABLE IF NOT EXISTS services (
@@ -1365,7 +1614,10 @@ DROP POLICY IF EXISTS "Users can manage their own bookings" ON bookings;
 CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Users can manage their own followups" ON followups;
-CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
+CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- 4. Database Updates / Migrations (If tables were created earlier without the 'tag' column)
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;`;
 
     const handleCopySql = () => {
       navigator.clipboard.writeText(sqlCode);
@@ -1545,6 +1797,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
         onClose={() => setSidebarOpen(false)}
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+        onUpdateCurrency={handleUpdateCurrency}
       />
 
       <main className="flex-1 md:pl-64 pl-0 pt-16 md:pt-0 min-h-screen">
@@ -1582,6 +1835,59 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
             >
               ღრუბლოვანი სინქრონიზაციის ჩართვა (ავტორიზაცია)
             </button>
+          </div>
+        )}
+
+        {showDbMigrationWarning && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-8 py-4 text-xs text-amber-800 dark:text-amber-400 font-medium">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block text-sm mb-1 text-slate-800 dark:text-slate-200">მონაცემთა ბაზის განახლებაა საჭირო (DB Migration Required)</span>
+                  <p className="text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl mb-1.5">
+                    კლიენტების სტატუსების (თეგების) სწორად შესანახად თქვენს Supabase-ში საჭიროა ახალი სვეტის <b>'tag'</b> დამატება. 
+                    გთხოვთ, დააკოპიროთ და გაუშვათ ქვემოთ მოცემული SQL კოდი თქვენს <b>Supabase SQL Editor</b>-ში:
+                  </p>
+                  {dbErrorDetail && (
+                    <div className="text-[11px] font-mono text-red-600 dark:text-red-400 bg-red-500/5 dark:bg-red-400/5 px-2.5 py-1.5 rounded border border-red-500/10 dark:border-red-400/10 max-w-2xl mt-1.5">
+                      <b>სისტემური შეცდომა (PostgreSQL Error):</b> {dbErrorDetail}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                <button
+                  onClick={handleVerifyMigration}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  ბაზის შემოწმება
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText("ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;\nNOTIFY pgrst, 'reload schema';");
+                    setMigrationCopied(true);
+                    setTimeout(() => setMigrationCopied(false), 2000);
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  {migrationCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {migrationCopied ? "დაკოპირდა!" : "კოდის კოპირება"}
+                </button>
+                <button
+                  onClick={() => setShowDbMigrationWarning(false)}
+                  className="p-1.5 hover:bg-amber-500/10 dark:hover:bg-amber-400/10 text-amber-600 rounded-lg transition cursor-pointer"
+                  title="დახურვა"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 font-mono bg-slate-900 text-slate-300 p-2.5 rounded-lg border border-slate-800 text-[11px] overflow-x-auto max-w-3xl whitespace-pre-wrap">
+              ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
+              NOTIFY pgrst, 'reload schema';
+            </div>
           </div>
         )}
 
@@ -1639,6 +1945,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
               onAddClient={handleAddClient}
               onEditClient={handleEditClient}
               onDeleteClient={handleDeleteClient}
+              currency={selectedBusiness.currency || "GEL"}
             />
           )}
 
@@ -1647,6 +1954,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
               clients={enrichedClients}
               onEditClient={handleEditClient}
               onAddClient={handleAddClient}
+              selectedBusiness={selectedBusiness}
             />
           )}
 
@@ -1656,6 +1964,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
               onAddService={handleAddService}
               onEditService={handleEditService}
               onDeleteService={handleDeleteService}
+              currency={selectedBusiness.currency || "GEL"}
             />
           )}
 
@@ -1722,6 +2031,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
         staff={staff}
         selectedBusinessId={selectedBusiness.id}
         defaultDate={bookingDefaultDate}
+        currency={selectedBusiness.currency || "GEL"}
       />
 
       {/* Floating animated demo toast alerts */}
@@ -1766,6 +2076,68 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
               </button>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showLogoutConfirm && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLogoutConfirm(false)}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs"
+            />
+            
+            {/* Modal Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.3 }}
+              className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 overflow-hidden text-slate-100 z-10"
+              id="logout-confirmation-modal"
+            >
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 via-indigo-500 to-indigo-600" />
+              
+              <div className="flex items-start gap-4 mt-2">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
+                  <LogOut className="w-5 h-5 text-rose-500" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-white font-display">
+                    სისტემიდან გასვლა
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {!isLocalMode && isSupabaseConfigured 
+                      ? "ნამდვილად გსურთ თქვენი ანგარიშიდან გასვლა? ყველა მონაცემი უსაფრთხოდ არის შენახული ღრუბელში."
+                      : "თქვენ იმყოფებით ლოკალურ რეჟიმში. გასვლისას თქვენი ლოკალური მონაცემები გასუფთავდება. მონაცემების შენარჩუნებისთვის გირჩევთ გამოიყენოთ 'სარეზერვო ასლი' ავტორიზაციის გვერდზე."
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 mt-6 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+                >
+                  გაუქმება
+                </button>
+                <button
+                  type="button"
+                  onClick={executeLogout}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-rose-600/15 cursor-pointer"
+                  id="confirm-logout-button"
+                >
+                  გასვლა
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

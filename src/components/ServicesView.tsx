@@ -4,25 +4,30 @@
  */
 
 import React, { useState } from "react";
-import { Plus, Scissors, Clock, DollarSign, Tag, Trash2, Edit2, Layers } from "lucide-react";
-import { Service } from "../types";
+import { Plus, Scissors, Clock, DollarSign, Euro, Coins, Tag, Trash2, Edit2, Layers } from "lucide-react";
+import { Service, formatPrice } from "../types";
+import ConfirmModal from "./ConfirmModal";
 
 interface ServicesViewProps {
   services: Service[];
   onAddService: (service: Omit<Service, "id">) => void;
   onEditService: (service: Service) => void;
   onDeleteService: (id: string) => void;
+  currency?: "GEL" | "USD" | "EUR";
 }
 
 export default function ServicesView({
   services,
   onAddService,
   onEditService,
-  onDeleteService
+  onDeleteService,
+  currency = "GEL"
 }: ServicesViewProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("ყველა");
   const [showModal, setShowModal] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
+  const [serviceToDelete, setServiceToDelete] = useState<Service | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Form states
   const [name, setName] = useState("");
@@ -34,6 +39,7 @@ export default function ServicesView({
   const categories = ["ყველა", ...Array.from(new Set(services.map(s => s.category)))];
 
   const handleOpenAdd = () => {
+    setError(null);
     setEditingService(null);
     setName("");
     setPrice(30);
@@ -43,6 +49,7 @@ export default function ServicesView({
   };
 
   const handleOpenEdit = (service: Service) => {
+    setError(null);
     setEditingService(service);
     setName(service.name);
     setPrice(service.price);
@@ -53,8 +60,9 @@ export default function ServicesView({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) {
-      alert("გთხოვთ მიუთითოთ სერვისის სახელი");
+    setError(null);
+    if (!name.trim()) {
+      setError("გთხოვთ მიუთითოთ სერვისის სახელი");
       return;
     }
 
@@ -149,11 +157,7 @@ export default function ServicesView({
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(`ნამდვილად გსურთ სერვისის (${service.name}) წაშლა?`)) {
-                        onDeleteService(service.id);
-                      }
-                    }}
+                    onClick={() => setServiceToDelete(service)}
                     className="p-1 hover:bg-rose-50 text-rose-400 hover:text-rose-600 rounded transition-colors"
                     title="წაშლა"
                   >
@@ -179,15 +183,21 @@ export default function ServicesView({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100 shrink-0">
-                    <DollarSign className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center border border-teal-100 shrink-0 font-bold text-[13px]">
+                    {currency === "USD" ? (
+                      <DollarSign className="w-3.5 h-3.5" />
+                    ) : currency === "EUR" ? (
+                      <Euro className="w-3.5 h-3.5" />
+                    ) : (
+                      <span className="leading-none select-none">₾</span>
+                    )}
                   </div>
                   <div>
                     <span className="text-[8px] text-slate-400 font-bold block uppercase tracking-wider">
                       ფასი
                     </span>
                     <span className="text-xs font-extrabold text-slate-800">
-                      {service.price}₾
+                      {formatPrice(service.price, currency)}
                     </span>
                   </div>
                 </div>
@@ -214,6 +224,12 @@ export default function ServicesView({
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-slate-800">
+              {error && (
+                <div className="p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-lg flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                   მომსახურების დასახელება <span className="text-rose-500">*</span>
@@ -231,7 +247,7 @@ export default function ServicesView({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                    ფასი (₾) <span className="text-rose-500">*</span>
+                    ფასი ({currency === "USD" ? "$" : currency === "EUR" ? "€" : "₾"}) <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -292,6 +308,21 @@ export default function ServicesView({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={serviceToDelete !== null}
+        onClose={() => setServiceToDelete(null)}
+        onConfirm={() => {
+          if (serviceToDelete) {
+            onDeleteService(serviceToDelete.id);
+          }
+        }}
+        title="სერვისის წაშლა"
+        message={serviceToDelete ? `ნამდვილად გსურთ სერვისის (${serviceToDelete.name}) წაშლა? წაიშლება სერვისთან დაკავშირებული ყველა ჯავშანი.` : ""}
+        confirmText="წაშლა"
+        cancelText="გაუქმება"
+        variant="danger"
+      />
     </div>
   );
 }

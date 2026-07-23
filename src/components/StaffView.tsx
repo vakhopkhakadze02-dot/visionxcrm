@@ -6,6 +6,7 @@
 import React, { useState } from "react";
 import { Plus, User, Mail, Phone, Award, Star, Trash2, Edit2, ShieldAlert, CheckCircle, HelpCircle } from "lucide-react";
 import { Staff } from "../types";
+import ConfirmModal from "./ConfirmModal";
 
 interface StaffViewProps {
   staff: Staff[];
@@ -24,6 +25,8 @@ export default function StaffView({
 }: StaffViewProps) {
   const [showModal, setShowModal] = useState(false);
   const [editingMember, setEditingMember] = useState<Staff | null>(null);
+  const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Form states
   const [name, setName] = useState("");
@@ -34,6 +37,7 @@ export default function StaffView({
   const [status, setStatus] = useState<"აქტიური" | "შვებულებაში">("აქტიური");
 
   const handleOpenAdd = () => {
+    setError(null);
     setEditingMember(null);
     setName("");
     setRole("");
@@ -45,6 +49,7 @@ export default function StaffView({
   };
 
   const handleOpenEdit = (member: Staff) => {
+    setError(null);
     setEditingMember(member);
     setName(member.name);
     setRole(member.role);
@@ -57,8 +62,9 @@ export default function StaffView({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !role) {
-      alert("გთხოვთ მიუთითოთ თანამშრომლის სახელი და პოზიცია");
+    setError(null);
+    if (!name.trim() || !role.trim()) {
+      setError("გთხოვთ მიუთითოთ თანამშრომლის სახელი და პოზიცია");
       return;
     }
 
@@ -141,11 +147,7 @@ export default function StaffView({
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(`ნამდვილად გსურთ წაშალოთ თანამშრომელი: ${member.name}?`)) {
-                        onDeleteStaff(member.id);
-                      }
-                    }}
+                    onClick={() => setStaffToDelete(member)}
                     className="p-1 hover:bg-rose-50 text-rose-400 hover:text-rose-600 rounded transition-colors"
                     title="წაშლა"
                   >
@@ -219,6 +221,12 @@ export default function StaffView({
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-slate-800">
+              {error && (
+                <div className="p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-lg flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                   სახელი და გვარი <span className="text-rose-500">*</span>
@@ -324,6 +332,21 @@ export default function StaffView({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={staffToDelete !== null}
+        onClose={() => setStaffToDelete(null)}
+        onConfirm={() => {
+          if (staffToDelete) {
+            onDeleteStaff(staffToDelete.id);
+          }
+        }}
+        title="თანამშრომლის წაშლა"
+        message={staffToDelete ? `ნამდვილად გსურთ წაშალოთ სპეციალისტი: ${staffToDelete.name}? წაიშლება სპეციალისტთან დაკავშირებული ყველა ჯავშანი.` : ""}
+        confirmText="წაშლა"
+        cancelText="გაუქმება"
+        variant="danger"
+      />
     </div>
   );
 }
