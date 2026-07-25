@@ -4,22 +4,20 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { 
-  Mail, 
-  MessageSquare, 
-  Phone, 
-  CheckCircle2, 
-  XCircle, 
-  Save, 
-  HelpCircle, 
-  RefreshCw, 
-  Send, 
-  AlertCircle, 
+import {
+  Mail,
+  MessageSquare,
+  Phone,
+  CheckCircle2,
+  XCircle,
+  Save,
+  RefreshCw,
+  AlertCircle,
   Info,
   Trash2,
-  ChevronRight,
   Settings,
-  History
+  History,
+  ShieldCheck
 } from "lucide-react";
 import { Booking, Client, Service, Staff, NotificationLog, NotificationSettings } from "../types";
 
@@ -49,23 +47,12 @@ export default function NotificationsView({
   onSendTestNotification
 }: NotificationsViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<"logs" | "settings">("logs");
-  
+
   // Settings States
   const [smsEnabled, setSmsEnabled] = useState(settings.smsEnabled);
   const [emailEnabled, setEmailEnabled] = useState(settings.emailEnabled);
   const [smsTemplate, setSmsTemplate] = useState(settings.smsTemplate);
   const [emailTemplate, setEmailTemplate] = useState(settings.emailTemplate);
-  
-  // Twilio Creds
-  const [twilioSid, setTwilioSid] = useState(settings.twilioSid || "");
-  const [twilioToken, setTwilioToken] = useState(settings.twilioToken || "");
-  const [twilioFrom, setTwilioFrom] = useState(settings.twilioFrom || "");
-  
-  // EmailJS Creds
-  const [emailjsServiceId, setEmailjsServiceId] = useState(settings.emailjsServiceId || "");
-  const [emailjsTemplateId, setEmailjsTemplateId] = useState(settings.emailjsTemplateId || "");
-  const [emailjsUserId, setEmailjsUserId] = useState(settings.emailjsUserId || "");
-  const [emailjsAccessToken, setEmailjsAccessToken] = useState(settings.emailjsAccessToken || "");
 
   // Keep state synced with props when settings change (e.g. business switched)
   useEffect(() => {
@@ -73,13 +60,6 @@ export default function NotificationsView({
     setEmailEnabled(settings.emailEnabled);
     setSmsTemplate(settings.smsTemplate);
     setEmailTemplate(settings.emailTemplate);
-    setTwilioSid(settings.twilioSid || "");
-    setTwilioToken(settings.twilioToken || "");
-    setTwilioFrom(settings.twilioFrom || "");
-    setEmailjsServiceId(settings.emailjsServiceId || "");
-    setEmailjsTemplateId(settings.emailjsTemplateId || "");
-    setEmailjsUserId(settings.emailjsUserId || "");
-    setEmailjsAccessToken(settings.emailjsAccessToken || "");
   }, [settings]);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -90,14 +70,7 @@ export default function NotificationsView({
       smsEnabled,
       emailEnabled,
       smsTemplate,
-      emailTemplate,
-      twilioSid: twilioSid.trim() || undefined,
-      twilioToken: twilioToken.trim() || undefined,
-      twilioFrom: twilioFrom.trim() || undefined,
-      emailjsServiceId: emailjsServiceId.trim() || undefined,
-      emailjsTemplateId: emailjsTemplateId.trim() || undefined,
-      emailjsUserId: emailjsUserId.trim() || undefined,
-      emailjsAccessToken: emailjsAccessToken.trim() || undefined
+      emailTemplate
     });
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
@@ -432,168 +405,65 @@ export default function NotificationsView({
                 თუ Twilio-ს ან EmailJS-ის კონფიგურაციას ცარიელს დატოვებთ, CRM მაინც სრულყოფილად იმუშავებს. შეტყობინებები გაიგზავნება <strong>სადემონსტრაციო (დემო) რეჟიმში</strong>: მომენტალურად გამოჩნდება ლამაზი საინფორმაციო ფანჯარა (Toast Banner) ეკრანზე მენეჯერისთვის, სადაც გამოჩნდება გაგზავნილი შეტყობინების სრული შინაარსი და ჩაიწერება ლოგების ისტორიაში!
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
-                რეალური SMS-ების და Email-ების გასაგზავნად, გთხოვთ, შეავსოთ მარჯვენა სვეტში მითითებული პარამეტრები.
+                რეალური SMS-ების და Email-ების გასაგზავნად, გასაღებები უნდა ჩაიწეროს სერვერზე (Supabase Secrets) — იხილეთ ინსტრუქცია მარჯვენა სვეტში.
               </p>
             </div>
           </div>
 
-          {/* Config column 2: Credentials */}
+          {/* Config column 2: Delivery status */}
           <div className="space-y-6">
-            {/* Twilio configurations */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-xs">
               <h3 className="font-bold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center gap-1.5">
-                <MessageSquare className="w-4 h-4 text-sky-500" />
-                Twilio (SMS პროვაიდერი)
+                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                გაგზავნის კონფიგურაცია
               </h3>
 
-              <div className="space-y-3.5">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Account SID
-                  </label>
-                  <input
-                    type="password"
-                    value={twilioSid}
-                    onChange={(e) => setTwilioSid(e.target.value)}
-                    placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxx"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
+              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-xl space-y-2">
+                <p className="text-[11px] text-emerald-800 dark:text-emerald-300 font-bold leading-normal flex items-start gap-1.5">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>Twilio-სა და EmailJS-ის გასაღებები ინახება სერვერზე და აღარ იწერება ბრაუზერში.</span>
+                </p>
+                <p className="text-[10.5px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  SMS და ელ-ფოსტა იგზავნება Supabase Edge Function-ის (<code className="font-mono">send-notification</code>) მეშვეობით, რომელსაც მხოლოდ მას აქვს წვდომა საიდუმლო გასაღებებზე. ეს იცავს თქვენს Twilio ანგარიშს ბრაუზერიდან გასაღების მოპარვისგან.
+                </p>
+              </div>
 
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Auth Token
-                  </label>
-                  <input
-                    type="password"
-                    value={twilioToken}
-                    onChange={(e) => setTwilioToken(e.target.value)}
-                    placeholder="მესამე მხარის საიდუმლო გასაღები"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Twilio From Number
-                  </label>
-                  <input
-                    type="text"
-                    value={twilioFrom}
-                    onChange={(e) => setTwilioFrom(e.target.value)}
-                    placeholder="მაგ: +1234567890"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                  <div className="bg-amber-50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30 rounded-xl p-3.5 mt-2.5 space-y-3">
-                    <p className="text-[11px] text-amber-800 dark:text-amber-400 font-bold leading-normal flex items-start gap-1.5">
-                      <span>⚠️</span>
-                      <span>მნიშვნელოვანი წესი: Twilio From Number ველში არ შეიძლება თქვენი პირადი ნომრის ჩაწერა. აქ უნდა ჩაიწეროს მხოლოდ Twilio-ს მიერ მოცემული ვირტუალური ნომერი.</span>
-                    </p>
-                    
-                    <div className="text-[10.5px] text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
-                      <div>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 block border-b border-slate-200/50 dark:border-slate-800/50 pb-1 mb-1.5">1. როგორ ავიღოთ სატესტო Twilio ნომერი უფასოდ?</span>
-                        <ul className="list-disc pl-4 space-y-1">
-                          <li>თქვენს სქრინშოტზე, გვერდის ცენტრში ჩანს ბარათი სათაურით <strong className="text-slate-800 dark:text-slate-200">"SMS Marketing with Studio"</strong>.</li>
-                          <li>მასზე დაინახავთ ლურჯ ლინკს/ღილაკს: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">"Get a phone number and try it →"</strong>.</li>
-                          <li>დააჭირეთ ამ ღილაკს და Twilio წამებში მოგცემთ თქვენს უფასო ვირტუალურ ნომერს (მაგ: +12055550100).</li>
-                          <li>სწორედ ეს ნომერი უნდა ჩაწეროთ ზემოთ, <strong className="text-slate-800 dark:text-slate-200">"Twilio From Number"</strong> ველში!</li>
-                        </ul>
-                      </div>
-
-                      <div className="pt-1.5">
-                        <span className="font-bold text-slate-800 dark:text-slate-200 block border-b border-slate-200/50 dark:border-slate-800/50 pb-1 mb-1.5">2. რატომ არ აგზავნის სხვის ნომრებზე? (Trial ანგარიშის ლიმიტი)</span>
-                        <p className="mb-1.5">
-                          Twilio-ს უფასო საცდელ (Trial) ანგარიშს აქვს მკაცრი უსაფრთხოების წესი: ის SMS-ს გააგზავნის <strong className="text-amber-700 dark:text-amber-400">მხოლოდ თქვენსავე ვერიფიცირებულ პირად ნომერზე</strong> (რომლითაც დარეგისტრირდით Twilio-ზე).
-                        </p>
-                        <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">თუ გსურთ SMS გაიგზავნოს სხვა ნომერზე (მაგალითად, კლიენტის ნომერზე):</p>
-                        <ul className="list-disc pl-4 space-y-1">
-                          <li>მარცხენა მენიუში გადადით: <strong className="text-slate-800 dark:text-slate-200">Develop ➔ Phone Numbers ➔ Manage ➔ Verified Caller IDs</strong>.</li>
-                          <li>დააჭირეთ <strong className="text-indigo-600 dark:text-indigo-400 font-bold">"Add a new caller ID"</strong>, ჩაწერეთ ის მობილურის ნომერი, სადაც გსურთ ტესტირება და დაადასტურეთ SMS კოდით.</li>
-                          <li>ამის შემდეგ ჩვენი აპლიკაციიდან შეძლებთ SMS-ების გაგზავნას ამ ახლად ვერიფიცირებულ ნომერზეც!</li>
-                        </ul>
-                      </div>
-
-                      <div className="pt-1.5">
-                        <span className="font-bold text-slate-800 dark:text-slate-200 block border-b border-slate-200/50 dark:border-slate-800/50 pb-1 mb-1.5">3. "current combination of To and From parameters" შეცდომა? (Geo-Permissions)</span>
-                        <p className="mb-1.5">
-                          ეს შეცდომა ნიშნავს, რომ Twilio-ს ამერიკული ნომრიდან ქართულ ნომერზე SMS-ის გაგზავნა დაბლოკილია, რადგან საერთაშორისო ნებართვები გათიშულია.
-                        </p>
-                        <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">ამის გამოსასწორებლად:</p>
-                        <ul className="list-disc pl-4 space-y-1">
-                          <li>შედით Twilio Console-ში და ზედა ძიებაში ჩაწერეთ ან გადადით: <strong className="text-slate-800 dark:text-slate-200">Develop ➔ Messaging ➔ Settings ➔ Geo-Permissions</strong>.</li>
-                          <li>მონიშნეთ/ჩართეთ <strong className="text-indigo-600 dark:text-indigo-400 font-bold">Georgia (საქართველო)</strong> სიაში.</li>
-                          <li>ჩამოდით გვერდის ბოლოში და დააჭირეთ <strong className="text-slate-800 dark:text-slate-200">"Save" (შენახვა)</strong> ღილაკს.</li>
-                          <li>ამის შემდეგ SMS-ის გაგზავნა მყისიერად იმუშავებს!</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <div className="space-y-2.5 text-[10.5px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                <span className="font-bold text-slate-800 dark:text-slate-200 block border-b border-slate-200/50 dark:border-slate-800/50 pb-1">
+                  როგორ ჩავრთოთ რეალური გაგზავნა?
+                </span>
+                <ol className="list-decimal pl-4 space-y-1.5">
+                  <li>დააინსტალირეთ ფუნქცია: <code className="font-mono bg-slate-100 dark:bg-slate-950 px-1 py-0.5 rounded">supabase functions deploy send-notification</code></li>
+                  <li>
+                    ჩაწერეთ გასაღებები სერვერზე:
+                    <code className="font-mono bg-slate-100 dark:bg-slate-950 px-1 py-0.5 rounded block mt-1 whitespace-pre-wrap break-all">supabase secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=+1...</code>
+                  </li>
+                  <li>დეტალური ინსტრუქცია იხილეთ ფაილში <code className="font-mono">supabase/README.md</code></li>
+                </ol>
+                <p className="pt-1">
+                  სანამ გასაღებები არ არის ჩაწერილი, შეტყობინებები მუშაობს <strong className="text-slate-800 dark:text-slate-200">სადემონსტრაციო რეჟიმში</strong> — ტექსტი ჩანს ეკრანზე და ინახება ლოგებში, მაგრამ კლიენტს არ ეგზავნება.
+                </p>
               </div>
             </div>
 
-            {/* EmailJS configurations */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-xs">
-              <h3 className="font-bold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center gap-1.5">
-                <Mail className="w-4 h-4 text-violet-500" />
-                EmailJS (ელ-ფოსტა)
-              </h3>
-
-              <div className="space-y-3.5">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Service ID
-                  </label>
-                  <input
-                    type="text"
-                    value={emailjsServiceId}
-                    onChange={(e) => setEmailjsServiceId(e.target.value)}
-                    placeholder="service_xxxxxxx"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Template ID
-                  </label>
-                  <input
-                    type="text"
-                    value={emailjsTemplateId}
-                    onChange={(e) => setEmailjsTemplateId(e.target.value)}
-                    placeholder="template_xxxxxxx"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Public Key / User ID
-                  </label>
-                  <input
-                    type="text"
-                    value={emailjsUserId}
-                    onChange={(e) => setEmailjsUserId(e.target.value)}
-                    placeholder="user_xxxxxxx ან გასაღები"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-                    Private Key (Optional)
-                  </label>
-                  <input
-                    type="password"
-                    value={emailjsAccessToken}
-                    onChange={(e) => setEmailjsAccessToken(e.target.value)}
-                    placeholder="საიდუმლო გასაღები"
-                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
+            <div className="bg-amber-50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30 rounded-2xl p-5 space-y-3">
+              <h4 className="font-bold text-[11px] text-amber-800 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4" />
+                Twilio-ს ხშირი შეცდომები
+              </h4>
+              <div className="text-[10.5px] text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
+                <p>
+                  <strong className="text-slate-800 dark:text-slate-200">From ნომერი:</strong> უნდა იყოს Twilio-სგან შეძენილი ვირტუალური ნომერი (მაგ. +12055550100), და არა თქვენი პირადი ნომერი.
+                </p>
+                <p>
+                  <strong className="text-slate-800 dark:text-slate-200">Trial ანგარიში:</strong> SMS იგზავნება მხოლოდ ვერიფიცირებულ ნომრებზე — Phone Numbers ➔ Manage ➔ Verified Caller IDs.
+                </p>
+                <p>
+                  <strong className="text-slate-800 dark:text-slate-200">"combination of To and From":</strong> ჩართეთ საქართველო — Messaging ➔ Settings ➔ Geo-Permissions ➔ Georgia ➔ Save.
+                </p>
               </div>
             </div>
+
 
             {/* Save Buttons & Action */}
             <div className="flex flex-col gap-2.5">

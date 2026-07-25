@@ -1,7 +1,11 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import {migrateLegacyStorage} from './storage.ts';
 import './index.css';
+
+// Move any pre-scoping data into the local workspace before the app reads it.
+migrateLegacyStorage();
 
 // Register PWA Service Worker in production
 if ('serviceWorker' in navigator && import.meta.env.PROD) {

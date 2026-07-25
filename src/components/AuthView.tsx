@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import { supabase, isSupabaseConfigured } from "../supabaseClient";
+import { SETUP_SQL } from "../dbSchema";
+import { LOCAL_SCOPE, exportScopeData, importBackupData } from "../storage";
 import { Lock, Mail, Building2, ChevronRight, HelpCircle, Database, CheckCircle2, ArrowLeft, Key, Download, Upload, Search } from "lucide-react";
 
 interface AuthViewProps {
@@ -39,78 +41,7 @@ export default function AuthView({ onAuthSuccess, onContinueLocal }: AuthViewPro
   const isDevMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dev") === "true";
   const showDevTools = !isSupabaseConfigured || isDevMode;
 
-  const sqlCode = `-- 1. Create Tables with User Isolation
-CREATE TABLE IF NOT EXISTS businesses (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  owner_name TEXT NOT NULL,
-  role TEXT DEFAULT 'მფლობელი',
-  phone TEXT,
-  email TEXT,
-  address TEXT,
-  category TEXT,
-  logo_color TEXT DEFAULT 'bg-indigo-600 text-white'
-);
-
-CREATE TABLE IF NOT EXISTS clients (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  phone TEXT NOT NULL,
-  email TEXT,
-  notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS services (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  price NUMERIC NOT NULL,
-  duration INT NOT NULL,
-  category TEXT NOT NULL,
-  color TEXT DEFAULT 'blue'
-);
-
-CREATE TABLE IF NOT EXISTS staff (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  role TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  avatar_color TEXT DEFAULT 'bg-indigo-600 text-white',
-  rating NUMERIC DEFAULT 5.0,
-  status TEXT DEFAULT 'აქტიური'
-);
-
-CREATE TABLE IF NOT EXISTS bookings (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  business_id TEXT REFERENCES businesses(id) ON DELETE CASCADE,
-  client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
-  service_id TEXT REFERENCES services(id) ON DELETE CASCADE,
-  staff_id TEXT REFERENCES staff(id) ON DELETE CASCADE,
-  date TEXT NOT NULL,
-  time TEXT NOT NULL,
-  price NUMERIC NOT NULL,
-  status TEXT DEFAULT 'მოლოდინში',
-  notes TEXT
-);
-
--- 2. Enable Row Level Security (RLS) for absolute data privacy
-ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
-ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
-
--- 3. Create RLS Policies so users can ONLY access their own data
-CREATE POLICY "Users can manage their own businesses" ON businesses FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can manage their own clients" ON clients FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can manage their own services" ON services FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can manage their own staff" ON staff FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
+  const sqlCode = SETUP_SQL;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(sqlCode);
@@ -299,23 +230,12 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
     setError(null);
     setSuccessMsg(null);
     try {
-      const backupData: Record<string, any> = {};
-      const keys = [
-        "vxcrm_businesses",
-        "vxcrm_selected_business",
-        "vxcrm_clients",
-        "vxcrm_services",
-        "vxcrm_staff",
-        "vxcrm_bookings",
-        "vxcrm_followups",
-        "vxcrm_notification_settings",
-        "vxcrm_notification_logs",
-        "vxcrm_last_active_email"
-      ];
-      keys.forEach(key => {
-        const val = localStorage.getItem(key);
-        if (val) backupData[key] = val;
-      });
+      const backupData = exportScopeData(LOCAL_SCOPE);
+
+      if (Object.keys(backupData).length === 0) {
+        setError("ამ ბრაუზერში ლოკალური მონაცემები ვერ მოიძებნა.");
+        return;
+      }
 
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
       const downloadAnchor = document.createElement("a");
@@ -340,13 +260,12 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        let importedCount = 0;
-        Object.entries(parsed).forEach(([key, val]) => {
-          if (key.startsWith("vxcrm_") && typeof val === "string") {
-            localStorage.setItem(key, val);
-            importedCount++;
-          }
-        });
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          setError("სარეზერვო ფაილის სტრუქტურა არასწორია.");
+          return;
+        }
+
+        const importedCount = importBackupData(parsed as Record<string, unknown>);
 
         if (importedCount > 0) {
           setSuccessMsg("ყველა მონაცემი წარმატებით აღდგა ფაილიდან! გვერდი გადაიტვირთება 2 წამში...");
