@@ -942,6 +942,11 @@ export default function App() {
 
   const [demoToast, setDemoToast] = useState<{ title: string; recipient: string; message: string } | null>(null);
 
+  /** Cloud writes that failed this session — surfaced in the sync header. */
+  const [syncFailures, setSyncFailures] = useState<
+    { id: string; label: string; message: string; at: string }[]
+  >([]);
+
   const showDemoToast = (title: string, recipient: string, message: string) => {
     setDemoToast({ title, recipient, message });
     // Play notification sound
@@ -960,6 +965,49 @@ export default function App() {
       oscillator.stop(audioCtx.currentTime + 0.3);
     } catch (e) {
       console.warn("Audio Context blocked:", e);
+    }
+  };
+
+  /**
+   * Runs one cloud mutation and makes any failure visible.
+   *
+   * Local state is still updated optimistically by the callers, so a failed
+   * write leaves the screen showing something the database does not have. That
+   * divergence used to be invisible — a console.warn and nothing else. Every
+   * failure now raises a toast and adds to the banner in the sync header, which
+   * stays up until the user reloads from the cloud or dismisses it.
+   *
+   * Returns true when the write landed (or when there is nothing to sync).
+   */
+  const recordSyncFailure = (label: string, err: any) => {
+    const message = err?.message || JSON.stringify(err);
+    console.warn(`Cloud sync failed (${label}):`, err);
+
+    setSyncFailures(prev => [
+      ...prev,
+      {
+        id: `sync_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        label,
+        message,
+        at: new Date().toLocaleTimeString("ka-GE", { hour: "2-digit", minute: "2-digit" })
+      }
+    ]);
+    showDemoToast("ღრუბელში შენახვა ვერ მოხერხდა", label, message);
+  };
+
+  const syncToCloud = async (
+    label: string,
+    run: () => PromiseLike<{ error: any }>
+  ): Promise<boolean> => {
+    if (isLocalMode || !session?.user?.id) return true;
+
+    try {
+      const { error } = await run();
+      if (error) throw error;
+      return true;
+    } catch (err: any) {
+      recordSyncFailure(label, err);
+      return false;
     }
   };
 
@@ -1180,16 +1228,9 @@ export default function App() {
       logoColor: "bg-indigo-600 text-white"
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("businesses")
-          .insert(mapBusinessToDB(newBus, session.user.id));
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error creating business in Supabase:", err);
-      }
-    }
+    await syncToCloud("ბიზნესის დამატება", () =>
+      supabase.from("businesses").insert(mapBusinessToDB(newBus, session!.user.id))
+    );
 
     setBusinesses(prev => [...prev, newBus]);
     setSelectedBusiness(newBus);
@@ -1214,62 +1255,31 @@ export default function App() {
       businessId: selectedBusiness.id
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("followups")
-          .insert(mapFollowupToDB(newFollowup, session.user.id));
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error creating followup in Supabase:", err);
-      }
-    }
+    await syncToCloud("შეხსენების დამატება", () =>
+      supabase.from("followups").insert(mapFollowupToDB(newFollowup, session!.user.id))
+    );
 
     setFollowups(prev => [newFollowup, ...prev]);
   };
 
   const handleUpdateFollowupStatus = async (id: string, status: Followup["status"]) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("followups")
-          .update({ status })
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error updating followup status in Supabase:", err);
-      }
-    }
+    await syncToCloud("შეხსენების სტატუსი", () =>
+      supabase.from("followups").update({ status }).eq("id", id)
+    );
     setFollowups(prev => prev.map(f => f.id === id ? { ...f, status } : f));
   };
 
   const handleDeleteFollowup = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("followups")
-          .delete()
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error deleting followup in Supabase:", err);
-      }
-    }
+    await syncToCloud("შეხსენების წაშლა", () =>
+      supabase.from("followups").delete().eq("id", id)
+    );
     setFollowups(prev => prev.filter(f => f.id !== id));
   };
 
   const handleEditFollowup = async (edited: Followup) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("followups")
-          .update(mapFollowupToDB(edited, session.user.id))
-          .eq("id", edited.id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error updating followup in Supabase:", err);
-      }
-    }
+    await syncToCloud("შეხსენების რედაქტირება", () =>
+      supabase.from("followups").update(mapFollowupToDB(edited, session!.user.id)).eq("id", edited.id)
+    );
     setFollowups(prev => prev.map(f => f.id === edited.id ? edited : f));
   };
 
@@ -1280,44 +1290,24 @@ export default function App() {
       id: `doc_${Date.now()}`
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("documents")
-          .insert(mapDocumentToDB(newDoc, session.user.id));
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error creating document in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "დოკუმენტის შექმნა", `ბაზაში ჩაწერა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("დოკუმენტის შექმნა", () =>
+      supabase.from("documents").insert(mapDocumentToDB(newDoc, session!.user.id))
+    );
 
     setDocuments(prev => [newDoc, ...prev]);
   };
 
   const handleUpdateDocumentStatus = async (id: string, status: DocumentInvoice["status"]) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase.from("documents").update({ status }).eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error updating document status in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "სტატუსის განახლება", `სტატუსი ვერ განახლდა ბაზაში: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("დოკუმენტის სტატუსი", () =>
+      supabase.from("documents").update({ status }).eq("id", id)
+    );
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, status } : d));
   };
 
   const handleDeleteDocument = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase.from("documents").delete().eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error deleting document in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "დოკუმენტის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("დოკუმენტის წაშლა", () =>
+      supabase.from("documents").delete().eq("id", id)
+    );
     setDocuments(prev => prev.filter(d => d.id !== id));
   };
 
@@ -1327,15 +1317,9 @@ export default function App() {
     if (!target) return;
     const enabled = !target.enabled;
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase.from("workflows").update({ enabled }).eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error toggling workflow in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "ავტომატიზაცია", `ცვლილება ვერ შეინახა ბაზაში: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("ავტომატიზაციის ჩართვა/გამორთვა", () =>
+      supabase.from("workflows").update({ enabled }).eq("id", id)
+    );
 
     setWorkflows(prev => prev.map(w => w.id === id ? { ...w, enabled } : w));
   };
@@ -1346,49 +1330,29 @@ export default function App() {
       id: `wf_${Date.now()}`
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("workflows")
-          .insert(mapWorkflowToDB(newWf, session.user.id));
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error creating workflow in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "ავტომატიზაციის შექმნა", `ბაზაში ჩაწერა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("ავტომატიზაციის შექმნა", () =>
+      supabase.from("workflows").insert(mapWorkflowToDB(newWf, session!.user.id))
+    );
 
     setWorkflows(prev => [...prev, newWf]);
   };
 
   const handleDeleteWorkflow = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase.from("workflows").delete().eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error deleting workflow in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "ავტომატიზაციის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("ავტომატიზაციის წაშლა", () =>
+      supabase.from("workflows").delete().eq("id", id)
+    );
     setWorkflows(prev => prev.filter(w => w.id !== id));
   };
 
   const handleSaveBooking = async (bookingData: Omit<Booking, "id"> & { id?: string }, shouldSendSms?: boolean) => {
     if (bookingData.id) {
       // Edit
-      if (!isLocalMode && session?.user?.id) {
-        try {
-          const { error } = await supabase
-            .from("bookings")
-            .update(mapBookingToDB(bookingData as Booking, session.user.id))
-            .eq("id", bookingData.id);
-          if (error) throw error;
-        } catch (err: any) {
-          console.warn("Error updating booking in Supabase:", err);
-          showDemoToast("სინქრონიზაციის შეცდომა", "ჯავშნის რედაქტირება", `ბაზაში ცვლილება ვერ შეინახა: ${err?.message || "უცნობი შეცდომა"}`);
-        }
-      }
+      await syncToCloud("ჯავშნის რედაქტირება", () =>
+        supabase
+          .from("bookings")
+          .update(mapBookingToDB(bookingData as Booking, session!.user.id))
+          .eq("id", bookingData.id!)
+      );
       const updatedBooking = bookingData as Booking;
       setBookings(prev => prev.map(b => b.id === bookingData.id ? updatedBooking : b));
       if (shouldSendSms) {
@@ -1400,51 +1364,25 @@ export default function App() {
         ...bookingData,
         id: `bok_${Date.now()}`
       };
-      if (!isLocalMode && session?.user?.id) {
-        try {
-          const { error } = await supabase
-            .from("bookings")
-            .insert(mapBookingToDB(newBooking, session.user.id));
-          if (error) throw error;
-        } catch (err: any) {
-          console.warn("Error creating booking in Supabase:", err);
-          showDemoToast("სინქრონიზაციის შეცდომა", "ჯავშნის დამატება", `ბაზაში ჩაწერა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-        }
-      }
+      await syncToCloud("ჯავშნის დამატება", () =>
+        supabase.from("bookings").insert(mapBookingToDB(newBooking, session!.user.id))
+      );
       setBookings(prev => [...prev, newBooking]);
       sendBookingNotifications(newBooking, true, shouldSendSms);
     }
   };
 
   const handleDeleteBooking = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("bookings")
-          .delete()
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error deleting booking in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "ჯავშნის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("ჯავშნის წაშლა", () =>
+      supabase.from("bookings").delete().eq("id", id)
+    );
     setBookings(prev => prev.filter(b => b.id !== id));
   };
 
   const handleUpdateBookingStatus = async (id: string, status: "დასრულებული" | "მოლოდინში" | "გაუქმებული") => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("bookings")
-          .update({ status })
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error updating booking status in Supabase:", err);
-        showDemoToast("სინქრონიზაციის შეცდომა", "სტატუსის განახლება", `სტატუსი ვერ განახლდა ბაზაში: ${err?.message || "უცნობი შეცდომა"}`);
-      }
-    }
+    await syncToCloud("ჯავშნის სტატუსი", () =>
+      supabase.from("bookings").update({ status }).eq("id", id)
+    );
     setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
   };
 
@@ -1475,14 +1413,9 @@ export default function App() {
           }
         }
       } catch (err: any) {
-        console.warn("Error adding client to Supabase:", err);
-        const errMsg = err?.message || JSON.stringify(err);
-        setDbErrorDetail(errMsg);
-        if (isSchemaCacheOrTagError(err)) {
-          verifyDatabaseSchema();
-        } else {
-          showDemoToast("შეცდომა ბაზაში შენახვისას", "კლიენტის დამატება", `მონაცემის შენახვა ვერ მოხერხდა: ${errMsg}`);
-        }
+        setDbErrorDetail(err?.message || JSON.stringify(err));
+        recordSyncFailure("კლიენტის დამატება", err);
+        if (isSchemaCacheOrTagError(err)) verifyDatabaseSchema();
       }
     }
 
@@ -1512,44 +1445,27 @@ export default function App() {
           }
         }
       } catch (err: any) {
-        console.warn("Error editing client in Supabase:", err);
-        const errMsg = err?.message || JSON.stringify(err);
-        setDbErrorDetail(errMsg);
-        if (isSchemaCacheOrTagError(err)) {
-          verifyDatabaseSchema();
-        } else {
-          showDemoToast("შეცდომა ბაზაში განახლებისას", "კლიენტის რედაქტირება", `ცვლილებების შენახვა ვერ მოხერხდა: ${errMsg}`);
-        }
+        setDbErrorDetail(err?.message || JSON.stringify(err));
+        recordSyncFailure("კლიენტის რედაქტირება", err);
+        if (isSchemaCacheOrTagError(err)) verifyDatabaseSchema();
       }
     }
     setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
   };
 
   const handleDeleteClient = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        // Delete bookings for this client in Supabase first to satisfy foreign key constraints
-        await supabase
-          .from("bookings")
-          .delete()
-          .eq("client_id", id);
-
-        // Delete followups for this client in Supabase first
-        await supabase
-          .from("followups")
-          .delete()
-          .eq("client_id", id);
-
-        // Now delete the client
-        const { error } = await supabase
-          .from("clients")
-          .delete()
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn("Error deleting client in Supabase:", err);
-        showDemoToast("შეცდომა წაშლისას", "კლიენტის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
-      }
+    // Bookings and follow-ups first, to satisfy the foreign keys. If either
+    // fails the client row is left alone — deleting it would orphan them.
+    const bookingsRemoved = await syncToCloud("კლიენტის ჯავშნების წაშლა", () =>
+      supabase.from("bookings").delete().eq("client_id", id)
+    );
+    const followupsRemoved = await syncToCloud("კლიენტის შეხსენებების წაშლა", () =>
+      supabase.from("followups").delete().eq("client_id", id)
+    );
+    if (bookingsRemoved && followupsRemoved) {
+      await syncToCloud("კლიენტის წაშლა", () =>
+        supabase.from("clients").delete().eq("id", id)
+      );
     }
     setClients(prev => prev.filter(c => c.id !== id));
     setBookings(prev => prev.filter(b => b.clientId !== id));
@@ -1562,53 +1478,34 @@ export default function App() {
       id: `ser_${Date.now()}`
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("services")
-          .insert(mapServiceToDB(newService, session.user.id));
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error adding service to Supabase:", err);
-      }
-    }
+    await syncToCloud("სერვისის დამატება", () =>
+      supabase.from("services").insert(mapServiceToDB(newService, session!.user.id))
+    );
 
     setServices(prev => [...prev, newService]);
   };
 
   const handleEditService = async (updatedService: Service) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("services")
-          .update(mapServiceToDB(updatedService, session.user.id))
-          .eq("id", updatedService.id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error editing service in Supabase:", err);
-      }
-    }
+    await syncToCloud("სერვისის რედაქტირება", () =>
+      supabase
+        .from("services")
+        .update(mapServiceToDB(updatedService, session!.user.id))
+        .eq("id", updatedService.id)
+    );
     setServices(prev => prev.map(s => s.id === updatedService.id ? updatedService : s));
   };
 
   const handleDeleteService = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        // Delete bookings for this service in Supabase first to satisfy foreign key constraints
-        await supabase
-          .from("bookings")
-          .delete()
-          .eq("service_id", id);
-
-        const { error } = await supabase
-          .from("services")
-          .delete()
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error deleting service in Supabase:", err);
-      }
+    // Bookings first, to satisfy the foreign key.
+    const bookingsRemoved = await syncToCloud("სერვისის ჯავშნების წაშლა", () =>
+      supabase.from("bookings").delete().eq("service_id", id)
+    );
+    if (bookingsRemoved) {
+      await syncToCloud("სერვისის წაშლა", () =>
+        supabase.from("services").delete().eq("id", id)
+      );
     }
+
     setServices(prev => prev.filter(s => s.id !== id));
     setBookings(prev => prev.filter(b => b.serviceId !== id));
   };
@@ -1619,53 +1516,34 @@ export default function App() {
       id: `stf_${Date.now()}`
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("staff")
-          .insert(mapStaffToDB(newMember, session.user.id));
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error adding staff to Supabase:", err);
-      }
-    }
+    await syncToCloud("თანამშრომლის დამატება", () =>
+      supabase.from("staff").insert(mapStaffToDB(newMember, session!.user.id))
+    );
 
     setStaff(prev => [...prev, newMember]);
   };
 
   const handleEditStaff = async (updatedMember: Staff) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("staff")
-          .update(mapStaffToDB(updatedMember, session.user.id))
-          .eq("id", updatedMember.id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error editing staff in Supabase:", err);
-      }
-    }
+    await syncToCloud("თანამშრომლის რედაქტირება", () =>
+      supabase
+        .from("staff")
+        .update(mapStaffToDB(updatedMember, session!.user.id))
+        .eq("id", updatedMember.id)
+    );
     setStaff(prev => prev.map(s => s.id === updatedMember.id ? updatedMember : s));
   };
 
   const handleDeleteStaff = async (id: string) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        // Delete bookings for this staff in Supabase first to satisfy foreign key constraints
-        await supabase
-          .from("bookings")
-          .delete()
-          .eq("staff_id", id);
-
-        const { error } = await supabase
-          .from("staff")
-          .delete()
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error deleting staff in Supabase:", err);
-      }
+    // Bookings first, to satisfy the foreign key.
+    const bookingsRemoved = await syncToCloud("თანამშრომლის ჯავშნების წაშლა", () =>
+      supabase.from("bookings").delete().eq("staff_id", id)
+    );
+    if (bookingsRemoved) {
+      await syncToCloud("თანამშრომლის წაშლა", () =>
+        supabase.from("staff").delete().eq("id", id)
+      );
     }
+
     setStaff(prev => prev.filter(s => s.id !== id));
     setBookings(prev => prev.filter(b => b.staffId !== id));
   };
@@ -1675,17 +1553,9 @@ export default function App() {
     if (!target) return;
     const newStatus = target.status === "აქტიური" ? "შვებულებაში" : "აქტიური";
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const { error } = await supabase
-          .from("staff")
-          .update({ status: newStatus })
-          .eq("id", id);
-        if (error) throw error;
-      } catch (err) {
-        console.warn("Error toggling staff status in Supabase:", err);
-      }
-    }
+    await syncToCloud("თანამშრომლის სტატუსი", () =>
+      supabase.from("staff").update({ status: newStatus }).eq("id", id)
+    );
 
     setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
   };
@@ -2039,6 +1909,47 @@ export default function App() {
             >
               ღრუბლოვანი სინქრონიზაციის ჩართვა (ავტორიზაცია)
             </button>
+          </div>
+        )}
+
+        {/* Unsaved-change warning: the screen is showing data the cloud does not have. */}
+        {syncFailures.length > 0 && !isLocalMode && (
+          <div className="bg-rose-50 dark:bg-rose-950/20 border-b border-rose-200 dark:border-rose-900/40 px-8 py-3 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block text-sm mb-0.5 text-rose-800 dark:text-rose-300">
+                    {syncFailures.length} ცვლილება ვერ შეინახა ღრუბელში
+                  </span>
+                  <p className="text-rose-700/80 dark:text-rose-400/80 leading-relaxed max-w-2xl">
+                    ეკრანზე ნაჩვენები მონაცემები არ ემთხვევა ბაზას. „ბაზიდან განახლება“ ჩამოტვირთავს ღრუბლის რეალურ მდგომარეობას — შეუნახავი ცვლილებები დაიკარგება.
+                  </p>
+                  <span className="block mt-1 font-mono text-[11px] text-rose-600 dark:text-rose-400">
+                    {syncFailures[syncFailures.length - 1].at} · {syncFailures[syncFailures.length - 1].label}: {syncFailures[syncFailures.length - 1].message}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                <button
+                  onClick={async () => {
+                    if (session?.user?.id) await fetchUserData(session.user.id);
+                    setSyncFailures([]);
+                  }}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  ბაზიდან განახლება
+                </button>
+                <button
+                  onClick={() => setSyncFailures([])}
+                  className="p-1.5 hover:bg-rose-500/10 text-rose-600 rounded-lg transition cursor-pointer"
+                  title="დახურვა"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
