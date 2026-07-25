@@ -1746,7 +1746,13 @@ export default function App() {
   if (supabaseFetchError && !isLocalMode) {
     const isMissingTables = 
       supabaseFetchError.code === "42P01" || 
-      (supabaseFetchError.message && supabaseFetchError.message.toLowerCase().includes("relation"));
+      supabaseFetchError.code === "42703" ||
+      supabaseFetchError.code === "42501" ||
+      (supabaseFetchError.message && (
+        supabaseFetchError.message.toLowerCase().includes("relation") ||
+        supabaseFetchError.message.toLowerCase().includes("column") ||
+        supabaseFetchError.message.toLowerCase().includes("permission")
+      ));
 
     const sqlCode = `-- 1. Create Tables with User Isolation
 CREATE TABLE IF NOT EXISTS businesses (
@@ -1823,7 +1829,22 @@ CREATE TABLE IF NOT EXISTS followups (
   notes TEXT
 );
 
--- 2. Enable Row Level Security (RLS)
+-- 2. Add missing columns if tables already existed without them
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
+ALTER TABLE services ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE followups ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- 3. Grant table permissions
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon;
+
+-- 4. Enable Row Level Security (RLS)
 ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE services ENABLE ROW LEVEL SECURITY;
@@ -1831,7 +1852,7 @@ ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE followups ENABLE ROW LEVEL SECURITY;
 
--- 3. Create RLS Policies
+-- 4. Create RLS Policies
 DROP POLICY IF EXISTS "Users can manage their own businesses" ON businesses;
 CREATE POLICY "Users can manage their own businesses" ON businesses FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -1848,10 +1869,7 @@ DROP POLICY IF EXISTS "Users can manage their own bookings" ON bookings;
 CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Users can manage their own followups" ON followups;
-CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
--- 4. Database Updates / Migrations (If tables were created earlier without the 'tag' column)
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;`;
+CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
 
     const handleCopySql = () => {
       navigator.clipboard.writeText(sqlCode);
