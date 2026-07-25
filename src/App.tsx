@@ -105,18 +105,25 @@ const mapClientFromDB = (c: any): Client => ({
   name: c.name,
   phone: c.phone,
   email: c.email || "",
+  company: c.company || "",
+  source: c.source || undefined,
+  leadValue: c.lead_value ? Number(c.lead_value) : undefined,
   notes: c.notes || "",
   totalBookings: 0,
   totalSpent: 0,
   tag: c.tag || undefined
 });
 
-const mapClientToDB = (c: Client, userId: string) => ({
+const mapClientToDB = (c: Client, userId: string, businessId?: string) => ({
   id: c.id,
   user_id: userId,
+  business_id: businessId || null,
   name: c.name,
   phone: c.phone,
   email: c.email || null,
+  company: c.company || null,
+  source: c.source || null,
+  lead_value: c.leadValue || null,
   notes: c.notes || null,
   tag: c.tag || null
 });
@@ -634,13 +641,13 @@ export default function App() {
         loadedBusinesses = [defaultBus];
       }
 
-      // 2. Seed Clients if empty in Supabase
+      // 2. Seed Clients if empty in Supabase only if user had custom local clients
       if (loadedClients.length === 0) {
         const savedCli = localStorage.getItem("vxcrm_clients");
         const parsedSavedCli = savedCli ? JSON.parse(savedCli) : [];
         const localCliList: Client[] = (parsedSavedCli && parsedSavedCli.length > 0) 
           ? parsedSavedCli 
-          : initialClients;
+          : [];
 
         if (localCliList.length > 0) {
           const cliToInsert = localCliList.map(c => mapClientToDB(c, userId));
@@ -656,31 +663,21 @@ export default function App() {
 
           if (!cliSeedErr) {
             console.log(`✅ [Auto-Sync] ${localCliList.length} clients successfully uploaded to Supabase clients table!`);
-            showDemoToast(
-              "ავტო-სინქრონიზაცია",
-              "კლიენტების ატვირთვა",
-              `წარმატებით აიტვირთა ${localCliList.length} კლიენტი Supabase-ის clients ცხრილში!`
-            );
             loadedClients = localCliList;
           } else {
             console.warn("Error seeding clients to Supabase:", cliSeedErr);
-            showDemoToast(
-              "სინქრონიზაციის შეცდომა",
-              "კლიენტების ატვირთვა",
-              `კლიენტების ატვირთვა ვერ მოხერხდა: ${cliSeedErr.message || JSON.stringify(cliSeedErr)}`
-            );
             loadedClients = localCliList; // keep local clients in UI state
           }
         }
       }
 
-      // 3. Seed Services if empty in Supabase
+      // 3. Seed Services if empty in Supabase only if user had custom local services
       if (loadedServices.length === 0) {
         const savedSer = localStorage.getItem("vxcrm_services");
         const parsedSavedSer = savedSer ? JSON.parse(savedSer) : [];
         const localSerList: Service[] = (parsedSavedSer && parsedSavedSer.length > 0) 
           ? parsedSavedSer 
-          : initialServices;
+          : [];
 
         if (localSerList.length > 0) {
           const serToInsert = localSerList.map(s => mapServiceToDB(s, userId));
@@ -692,13 +689,13 @@ export default function App() {
         }
       }
 
-      // 4. Seed Staff if empty in Supabase
+      // 4. Seed Staff if empty in Supabase only if user had custom local staff
       if (loadedStaff.length === 0) {
         const savedStf = localStorage.getItem("vxcrm_staff");
         const parsedSavedStf = savedStf ? JSON.parse(savedStf) : [];
         const localStfList: Staff[] = (parsedSavedStf && parsedSavedStf.length > 0) 
           ? parsedSavedStf 
-          : initialStaff;
+          : [];
 
         if (localStfList.length > 0) {
           const stfToInsert = localStfList.map(s => mapStaffToDB(s, userId));
@@ -710,13 +707,13 @@ export default function App() {
         }
       }
 
-      // 5. Seed Bookings if empty in Supabase
+      // 5. Seed Bookings if empty in Supabase only if user had custom local bookings
       if (loadedBookings.length === 0) {
         const savedBok = localStorage.getItem("vxcrm_bookings");
         const parsedSavedBok = savedBok ? JSON.parse(savedBok) : [];
         const localBokList: Booking[] = (parsedSavedBok && parsedSavedBok.length > 0) 
           ? parsedSavedBok 
-          : initialBookings;
+          : [];
 
         if (localBokList.length > 0) {
           const bokToInsert = localBokList.map(b => mapBookingToDB(b, userId));
@@ -1431,7 +1428,7 @@ export default function App() {
 
     if (!isLocalMode && session?.user?.id) {
       try {
-        const payload = mapClientToDB(newClient, session.user.id);
+        const payload = mapClientToDB(newClient, session.user.id, selectedBusiness.id);
         const { error } = await supabase
           .from("clients")
           .insert(payload);
@@ -1467,7 +1464,7 @@ export default function App() {
   const handleEditClient = async (updatedClient: Client) => {
     if (!isLocalMode && session?.user?.id) {
       try {
-        const payload = mapClientToDB(updatedClient, session.user.id);
+        const payload = mapClientToDB(updatedClient, session.user.id, selectedBusiness.id);
         const { error } = await supabase
           .from("clients")
           .update(payload)
@@ -1771,9 +1768,13 @@ CREATE TABLE IF NOT EXISTS businesses (
 CREATE TABLE IF NOT EXISTS clients (
   id TEXT PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  business_id TEXT,
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
   email TEXT,
+  company TEXT,
+  source TEXT,
+  lead_value NUMERIC,
   notes TEXT,
   tag TEXT
 );
@@ -1832,6 +1833,10 @@ CREATE TABLE IF NOT EXISTS followups (
 -- 2. Add missing columns if tables already existed without them
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS company TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_value NUMERIC;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
 ALTER TABLE services ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
