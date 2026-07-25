@@ -108,18 +108,25 @@ const mapClientFromDB = (c: any): Client => ({
   name: c.name,
   phone: c.phone,
   email: c.email || "",
+  company: c.company || "",
+  source: c.source || undefined,
+  leadValue: c.lead_value ? Number(c.lead_value) : undefined,
   notes: c.notes || "",
   totalBookings: 0,
   totalSpent: 0,
   tag: c.tag || undefined
 });
 
-const mapClientToDB = (c: Client, userId: string) => ({
+const mapClientToDB = (c: Client, userId: string, businessId?: string) => ({
   id: c.id,
   user_id: userId,
+  business_id: businessId || null,
   name: c.name,
   phone: c.phone,
   email: c.email || null,
+  company: c.company || null,
+  source: c.source || null,
+  lead_value: c.leadValue || null,
   notes: c.notes || null,
   tag: c.tag || null
 });
@@ -750,7 +757,7 @@ export default function App() {
 
     // Clients first — the tag column may be missing on older projects.
     if (localClients.length > 0) {
-      const rows = localClients.map(c => mapClientToDB(c, userId));
+      const rows = localClients.map(c => mapClientToDB(c, userId, selectedBusiness.id));
       let { error } = await supabase.from("clients").upsert(rows, { onConflict: "id" });
 
       if (error && isSchemaCacheOrTagError(error)) {
@@ -1263,7 +1270,7 @@ export default function App() {
 
     if (!isLocalMode && session?.user?.id) {
       try {
-        const payload = mapClientToDB(newClient, session.user.id);
+        const payload = mapClientToDB(newClient, session.user.id, selectedBusiness.id);
         const { error } = await supabase
           .from("clients")
           .insert(payload);
@@ -1299,7 +1306,7 @@ export default function App() {
   const handleEditClient = async (updatedClient: Client) => {
     if (!isLocalMode && session?.user?.id) {
       try {
-        const payload = mapClientToDB(updatedClient, session.user.id);
+        const payload = mapClientToDB(updatedClient, session.user.id, selectedBusiness.id);
         const { error } = await supabase
           .from("clients")
           .update(payload)
@@ -1578,7 +1585,13 @@ export default function App() {
   if (supabaseFetchError && !isLocalMode) {
     const isMissingTables = 
       supabaseFetchError.code === "42P01" || 
-      (supabaseFetchError.message && supabaseFetchError.message.toLowerCase().includes("relation"));
+      supabaseFetchError.code === "42703" ||
+      supabaseFetchError.code === "42501" ||
+      (supabaseFetchError.message && (
+        supabaseFetchError.message.toLowerCase().includes("relation") ||
+        supabaseFetchError.message.toLowerCase().includes("column") ||
+        supabaseFetchError.message.toLowerCase().includes("permission")
+      ));
 
     const sqlCode = SETUP_SQL;
 
