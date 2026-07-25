@@ -66,7 +66,10 @@ import {
   writeScoped,
   clearScope
 } from "./storage";
-import { SETUP_SQL, TAG_MIGRATION_SQL } from "./dbSchema";
+import { SETUP_SQL, TAG_MIGRATION_SQL, stripNewerClientColumns } from "./dbSchema";
+import { isMissingColumnError } from "./syncQueue";
+import { useSyncQueue } from "./useSyncQueue";
+import { newId } from "./ids";
 
 // --- DB DATA MAPPERS ---
 const getBusinessCurrency = (scope: StorageScope, businessId: string): CurrencyCode => {
@@ -194,41 +197,6 @@ const mapWorkflowToDB = (w: WorkflowAutomation, userId: string) => ({
   enabled: w.enabled,
   execution_count: w.executionCount
 });
-
-const isSchemaCacheOrTagError = (err: any) => {
-  if (!err) return false;
-  const msg = (err.message || "").toLowerCase();
-  const code = (err.code || "").toString();
-  return (
-    code === "PGRST204" ||
-    code === "42703" ||
-    msg.includes("schema cache") ||
-    msg.includes("column")
-  );
-};
-
-/**
- * Client columns introduced after the original schema. On a project where the
- * newer migration has not been run, writing them fails the whole row — so the
- * write is retried without them and the core fields (name, phone, email, notes)
- * still save. The migration banner tells the user how to stop losing the rest.
- */
-const CLIENT_COLUMNS_ADDED_LATER = [
-  "tag",
-  "business_id",
-  "company",
-  "source",
-  "lead_value",
-  "assigned_staff_id",
-  "communications",
-  "attachments"
-] as const;
-
-const stripNewerClientColumns = (payload: Record<string, any>): Record<string, any> => {
-  const core = { ...payload };
-  CLIENT_COLUMNS_ADDED_LATER.forEach(column => delete core[column]);
-  return core;
-};
 
 const mapServiceFromDB = (s: any): Service => ({
   id: s.id,
@@ -556,6 +524,16 @@ export default function App() {
   const isLocalScope = scope?.kind === "local";
   const canPersist = scope !== null && hydrated;
 
+  /**
+   * Durable outbox. Mutations are recorded before they are attempted and
+   * replayed until they land, so a lost connection or a closed tab no longer
+   * loses the write. Writes the database will never accept stop retrying and
+   * are surfaced for the user to resolve.
+   */
+  const sync = useSyncQueue(scope, !isLocalMode && !!session?.user?.id, {
+    onSchemaGap: () => setShowDbMigrationWarning(true)
+  });
+
   // State lists
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [selectedBusiness, setSelectedBusiness] = useState<Business>(LOADING_BUSINESS);
@@ -867,7 +845,7 @@ export default function App() {
       const rows = localClients.map(c => mapClientToDB(c, userId, selectedBusiness.id));
       let { error } = await supabase.from("clients").upsert(rows, { onConflict: "id" });
 
-      if (error && isSchemaCacheOrTagError(error)) {
+      if (error && isMissingColumnError(error)) {
         console.warn("Retrying client upload with core columns only:", error);
         const coreRows = rows.map(stripNewerClientColumns);
         error = (await supabase.from("clients").upsert(coreRows, { onConflict: "id" })).error;
@@ -942,11 +920,6 @@ export default function App() {
 
   const [demoToast, setDemoToast] = useState<{ title: string; recipient: string; message: string } | null>(null);
 
-  /** Cloud writes that failed this session — surfaced in the sync header. */
-  const [syncFailures, setSyncFailures] = useState<
-    { id: string; label: string; message: string; at: string }[]
-  >([]);
-
   const showDemoToast = (title: string, recipient: string, message: string) => {
     setDemoToast({ title, recipient, message });
     // Play notification sound
@@ -965,49 +938,6 @@ export default function App() {
       oscillator.stop(audioCtx.currentTime + 0.3);
     } catch (e) {
       console.warn("Audio Context blocked:", e);
-    }
-  };
-
-  /**
-   * Runs one cloud mutation and makes any failure visible.
-   *
-   * Local state is still updated optimistically by the callers, so a failed
-   * write leaves the screen showing something the database does not have. That
-   * divergence used to be invisible — a console.warn and nothing else. Every
-   * failure now raises a toast and adds to the banner in the sync header, which
-   * stays up until the user reloads from the cloud or dismisses it.
-   *
-   * Returns true when the write landed (or when there is nothing to sync).
-   */
-  const recordSyncFailure = (label: string, err: any) => {
-    const message = err?.message || JSON.stringify(err);
-    console.warn(`Cloud sync failed (${label}):`, err);
-
-    setSyncFailures(prev => [
-      ...prev,
-      {
-        id: `sync_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        label,
-        message,
-        at: new Date().toLocaleTimeString("ka-GE", { hour: "2-digit", minute: "2-digit" })
-      }
-    ]);
-    showDemoToast("ღრუბელში შენახვა ვერ მოხერხდა", label, message);
-  };
-
-  const syncToCloud = async (
-    label: string,
-    run: () => PromiseLike<{ error: any }>
-  ): Promise<boolean> => {
-    if (isLocalMode || !session?.user?.id) return true;
-
-    try {
-      const { error } = await run();
-      if (error) throw error;
-      return true;
-    } catch (err: any) {
-      recordSyncFailure(label, err);
-      return false;
     }
   };
 
@@ -1228,9 +1158,13 @@ export default function App() {
       logoColor: "bg-indigo-600 text-white"
     };
 
-    await syncToCloud("ბიზნესის დამატება", () =>
-      supabase.from("businesses").insert(mapBusinessToDB(newBus, session!.user.id))
-    );
+    sync.enqueue({
+      entity: "businesses",
+      operation: "insert",
+      rowId: newBus.id,
+      payload: mapBusinessToDB(newBus, session?.user?.id ?? ""),
+      label: "ბიზნესის დამატება"
+    });
 
     setBusinesses(prev => [...prev, newBus]);
     setSelectedBusiness(newBus);
@@ -1255,31 +1189,41 @@ export default function App() {
       businessId: selectedBusiness.id
     };
 
-    await syncToCloud("შეხსენების დამატება", () =>
-      supabase.from("followups").insert(mapFollowupToDB(newFollowup, session!.user.id))
-    );
+    sync.enqueue({
+      entity: "followups",
+      operation: "insert",
+      rowId: newFollowup.id,
+      payload: mapFollowupToDB(newFollowup, session?.user?.id ?? ""),
+      label: "შეხსენების დამატება"
+    });
 
     setFollowups(prev => [newFollowup, ...prev]);
   };
 
   const handleUpdateFollowupStatus = async (id: string, status: Followup["status"]) => {
-    await syncToCloud("შეხსენების სტატუსი", () =>
-      supabase.from("followups").update({ status }).eq("id", id)
-    );
+    sync.enqueue({
+      entity: "followups",
+      operation: "update",
+      rowId: id,
+      payload: { status },
+      label: "შეხსენების სტატუსი"
+    });
     setFollowups(prev => prev.map(f => f.id === id ? { ...f, status } : f));
   };
 
   const handleDeleteFollowup = async (id: string) => {
-    await syncToCloud("შეხსენების წაშლა", () =>
-      supabase.from("followups").delete().eq("id", id)
-    );
+    sync.enqueue({ entity: "followups", operation: "delete", rowId: id, label: "შეხსენების წაშლა" });
     setFollowups(prev => prev.filter(f => f.id !== id));
   };
 
   const handleEditFollowup = async (edited: Followup) => {
-    await syncToCloud("შეხსენების რედაქტირება", () =>
-      supabase.from("followups").update(mapFollowupToDB(edited, session!.user.id)).eq("id", edited.id)
-    );
+    sync.enqueue({
+      entity: "followups",
+      operation: "update",
+      rowId: edited.id,
+      payload: mapFollowupToDB(edited, session?.user?.id ?? ""),
+      label: "შეხსენების რედაქტირება"
+    });
     setFollowups(prev => prev.map(f => f.id === edited.id ? edited : f));
   };
 
@@ -1290,24 +1234,30 @@ export default function App() {
       id: `doc_${Date.now()}`
     };
 
-    await syncToCloud("დოკუმენტის შექმნა", () =>
-      supabase.from("documents").insert(mapDocumentToDB(newDoc, session!.user.id))
-    );
+    sync.enqueue({
+      entity: "documents",
+      operation: "insert",
+      rowId: newDoc.id,
+      payload: mapDocumentToDB(newDoc, session?.user?.id ?? ""),
+      label: "დოკუმენტის შექმნა"
+    });
 
     setDocuments(prev => [newDoc, ...prev]);
   };
 
   const handleUpdateDocumentStatus = async (id: string, status: DocumentInvoice["status"]) => {
-    await syncToCloud("დოკუმენტის სტატუსი", () =>
-      supabase.from("documents").update({ status }).eq("id", id)
-    );
+    sync.enqueue({
+      entity: "documents",
+      operation: "update",
+      rowId: id,
+      payload: { status },
+      label: "დოკუმენტის სტატუსი"
+    });
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, status } : d));
   };
 
   const handleDeleteDocument = async (id: string) => {
-    await syncToCloud("დოკუმენტის წაშლა", () =>
-      supabase.from("documents").delete().eq("id", id)
-    );
+    sync.enqueue({ entity: "documents", operation: "delete", rowId: id, label: "დოკუმენტის წაშლა" });
     setDocuments(prev => prev.filter(d => d.id !== id));
   };
 
@@ -1317,9 +1267,13 @@ export default function App() {
     if (!target) return;
     const enabled = !target.enabled;
 
-    await syncToCloud("ავტომატიზაციის ჩართვა/გამორთვა", () =>
-      supabase.from("workflows").update({ enabled }).eq("id", id)
-    );
+    sync.enqueue({
+      entity: "workflows",
+      operation: "update",
+      rowId: id,
+      payload: { enabled },
+      label: "ავტომატიზაციის ჩართვა/გამორთვა"
+    });
 
     setWorkflows(prev => prev.map(w => w.id === id ? { ...w, enabled } : w));
   };
@@ -1330,29 +1284,32 @@ export default function App() {
       id: `wf_${Date.now()}`
     };
 
-    await syncToCloud("ავტომატიზაციის შექმნა", () =>
-      supabase.from("workflows").insert(mapWorkflowToDB(newWf, session!.user.id))
-    );
+    sync.enqueue({
+      entity: "workflows",
+      operation: "insert",
+      rowId: newWf.id,
+      payload: mapWorkflowToDB(newWf, session?.user?.id ?? ""),
+      label: "ავტომატიზაციის შექმნა"
+    });
 
     setWorkflows(prev => [...prev, newWf]);
   };
 
   const handleDeleteWorkflow = async (id: string) => {
-    await syncToCloud("ავტომატიზაციის წაშლა", () =>
-      supabase.from("workflows").delete().eq("id", id)
-    );
+    sync.enqueue({ entity: "workflows", operation: "delete", rowId: id, label: "ავტომატიზაციის წაშლა" });
     setWorkflows(prev => prev.filter(w => w.id !== id));
   };
 
   const handleSaveBooking = async (bookingData: Omit<Booking, "id"> & { id?: string }, shouldSendSms?: boolean) => {
     if (bookingData.id) {
       // Edit
-      await syncToCloud("ჯავშნის რედაქტირება", () =>
-        supabase
-          .from("bookings")
-          .update(mapBookingToDB(bookingData as Booking, session!.user.id))
-          .eq("id", bookingData.id!)
-      );
+      sync.enqueue({
+        entity: "bookings",
+        operation: "update",
+        rowId: bookingData.id,
+        payload: mapBookingToDB(bookingData as Booking, session?.user?.id ?? ""),
+        label: "ჯავშნის რედაქტირება"
+      });
       const updatedBooking = bookingData as Booking;
       setBookings(prev => prev.map(b => b.id === bookingData.id ? updatedBooking : b));
       if (shouldSendSms) {
@@ -1364,25 +1321,31 @@ export default function App() {
         ...bookingData,
         id: `bok_${Date.now()}`
       };
-      await syncToCloud("ჯავშნის დამატება", () =>
-        supabase.from("bookings").insert(mapBookingToDB(newBooking, session!.user.id))
-      );
+      sync.enqueue({
+        entity: "bookings",
+        operation: "insert",
+        rowId: newBooking.id,
+        payload: mapBookingToDB(newBooking, session?.user?.id ?? ""),
+        label: "ჯავშნის დამატება"
+      });
       setBookings(prev => [...prev, newBooking]);
       sendBookingNotifications(newBooking, true, shouldSendSms);
     }
   };
 
   const handleDeleteBooking = async (id: string) => {
-    await syncToCloud("ჯავშნის წაშლა", () =>
-      supabase.from("bookings").delete().eq("id", id)
-    );
+    sync.enqueue({ entity: "bookings", operation: "delete", rowId: id, label: "ჯავშნის წაშლა" });
     setBookings(prev => prev.filter(b => b.id !== id));
   };
 
   const handleUpdateBookingStatus = async (id: string, status: "დასრულებული" | "მოლოდინში" | "გაუქმებული") => {
-    await syncToCloud("ჯავშნის სტატუსი", () =>
-      supabase.from("bookings").update({ status }).eq("id", id)
-    );
+    sync.enqueue({
+      entity: "bookings",
+      operation: "update",
+      rowId: id,
+      payload: { status },
+      label: "ჯავშნის სტატუსი"
+    });
     setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
   };
 
@@ -1394,79 +1357,37 @@ export default function App() {
       totalSpent: 0
     };
 
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const payload = mapClientToDB(newClient, session.user.id, selectedBusiness.id);
-        const { error } = await supabase
-          .from("clients")
-          .insert(payload);
-        if (error) {
-          if (isSchemaCacheOrTagError(error)) {
-            // Fallback: save the core fields when newer columns are missing
-            const { error: retryErr } = await supabase
-              .from("clients")
-              .insert(stripNewerClientColumns(payload));
-            if (retryErr) throw retryErr;
-            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტი შეინახა ძირითადი ველებით. დანარჩენის შესანახად გაუშვით მიგრაციის SQL კოდი Supabase-ში.");
-          } else {
-            throw error;
-          }
-        }
-      } catch (err: any) {
-        setDbErrorDetail(err?.message || JSON.stringify(err));
-        recordSyncFailure("კლიენტის დამატება", err);
-        if (isSchemaCacheOrTagError(err)) verifyDatabaseSchema();
-      }
-    }
+    sync.enqueue({
+      entity: "clients",
+      operation: "insert",
+      rowId: newClient.id,
+      payload: mapClientToDB(newClient, session?.user?.id ?? "", selectedBusiness.id),
+      label: "კლიენტის დამატება"
+    });
 
     setClients(prev => [...prev, newClient]);
     return newClient;
   };
 
   const handleEditClient = async (updatedClient: Client) => {
-    if (!isLocalMode && session?.user?.id) {
-      try {
-        const payload = mapClientToDB(updatedClient, session.user.id, selectedBusiness.id);
-        const { error } = await supabase
-          .from("clients")
-          .update(payload)
-          .eq("id", updatedClient.id);
-        if (error) {
-          if (isSchemaCacheOrTagError(error)) {
-            // Fallback: save the core fields when newer columns are missing
-            const { error: retryErr } = await supabase
-              .from("clients")
-              .update(stripNewerClientColumns(payload))
-              .eq("id", updatedClient.id);
-            if (retryErr) throw retryErr;
-            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტის ძირითადი ველები განახლდა. დანარჩენის შესანახად გაუშვით მიგრაციის SQL კოდი Supabase-ში.");
-          } else {
-            throw error;
-          }
-        }
-      } catch (err: any) {
-        setDbErrorDetail(err?.message || JSON.stringify(err));
-        recordSyncFailure("კლიენტის რედაქტირება", err);
-        if (isSchemaCacheOrTagError(err)) verifyDatabaseSchema();
-      }
-    }
+    sync.enqueue({
+      entity: "clients",
+      operation: "update",
+      rowId: updatedClient.id,
+      payload: mapClientToDB(updatedClient, session?.user?.id ?? "", selectedBusiness.id),
+      label: "კლიენტის რედაქტირება"
+    });
     setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
   };
 
   const handleDeleteClient = async (id: string) => {
-    // Bookings and follow-ups first, to satisfy the foreign keys. If either
-    // fails the client row is left alone — deleting it would orphan them.
-    const bookingsRemoved = await syncToCloud("კლიენტის ჯავშნების წაშლა", () =>
-      supabase.from("bookings").delete().eq("client_id", id)
-    );
-    const followupsRemoved = await syncToCloud("კლიენტის შეხსენებების წაშლა", () =>
-      supabase.from("followups").delete().eq("client_id", id)
-    );
-    if (bookingsRemoved && followupsRemoved) {
-      await syncToCloud("კლიენტის წაშლა", () =>
-        supabase.from("clients").delete().eq("id", id)
-      );
-    }
+    // Bookings and follow-ups first, to satisfy the foreign keys. One group,
+    // so if a dependency cannot be removed the client row is abandoned rather
+    // than deleted out from under it.
+    const group = newId("del_client");
+    sync.enqueue({ entity: "bookings", operation: "delete", rowId: id, matchColumn: "client_id", label: "კლიენტის ჯავშნების წაშლა", groupId: group });
+    sync.enqueue({ entity: "followups", operation: "delete", rowId: id, matchColumn: "client_id", label: "კლიენტის შეხსენებების წაშლა", groupId: group });
+    sync.enqueue({ entity: "clients", operation: "delete", rowId: id, label: "კლიენტის წაშლა", groupId: group });
     setClients(prev => prev.filter(c => c.id !== id));
     setBookings(prev => prev.filter(b => b.clientId !== id));
     setFollowups(prev => prev.filter(f => f.clientId !== id));
@@ -1478,33 +1399,34 @@ export default function App() {
       id: `ser_${Date.now()}`
     };
 
-    await syncToCloud("სერვისის დამატება", () =>
-      supabase.from("services").insert(mapServiceToDB(newService, session!.user.id))
-    );
+    sync.enqueue({
+      entity: "services",
+      operation: "insert",
+      rowId: newService.id,
+      payload: mapServiceToDB(newService, session?.user?.id ?? ""),
+      label: "სერვისის დამატება"
+    });
 
     setServices(prev => [...prev, newService]);
   };
 
   const handleEditService = async (updatedService: Service) => {
-    await syncToCloud("სერვისის რედაქტირება", () =>
-      supabase
-        .from("services")
-        .update(mapServiceToDB(updatedService, session!.user.id))
-        .eq("id", updatedService.id)
-    );
+    sync.enqueue({
+      entity: "services",
+      operation: "update",
+      rowId: updatedService.id,
+      payload: mapServiceToDB(updatedService, session?.user?.id ?? ""),
+      label: "სერვისის რედაქტირება"
+    });
     setServices(prev => prev.map(s => s.id === updatedService.id ? updatedService : s));
   };
 
   const handleDeleteService = async (id: string) => {
-    // Bookings first, to satisfy the foreign key.
-    const bookingsRemoved = await syncToCloud("სერვისის ჯავშნების წაშლა", () =>
-      supabase.from("bookings").delete().eq("service_id", id)
-    );
-    if (bookingsRemoved) {
-      await syncToCloud("სერვისის წაშლა", () =>
-        supabase.from("services").delete().eq("id", id)
-      );
-    }
+    // Bookings first, to satisfy the foreign key — grouped so the service
+    // survives if its bookings could not be removed.
+    const serviceGroup = newId("del_service");
+    sync.enqueue({ entity: "bookings", operation: "delete", rowId: id, matchColumn: "service_id", label: "სერვისის ჯავშნების წაშლა", groupId: serviceGroup });
+    sync.enqueue({ entity: "services", operation: "delete", rowId: id, label: "სერვისის წაშლა", groupId: serviceGroup });
 
     setServices(prev => prev.filter(s => s.id !== id));
     setBookings(prev => prev.filter(b => b.serviceId !== id));
@@ -1516,33 +1438,34 @@ export default function App() {
       id: `stf_${Date.now()}`
     };
 
-    await syncToCloud("თანამშრომლის დამატება", () =>
-      supabase.from("staff").insert(mapStaffToDB(newMember, session!.user.id))
-    );
+    sync.enqueue({
+      entity: "staff",
+      operation: "insert",
+      rowId: newMember.id,
+      payload: mapStaffToDB(newMember, session?.user?.id ?? ""),
+      label: "თანამშრომლის დამატება"
+    });
 
     setStaff(prev => [...prev, newMember]);
   };
 
   const handleEditStaff = async (updatedMember: Staff) => {
-    await syncToCloud("თანამშრომლის რედაქტირება", () =>
-      supabase
-        .from("staff")
-        .update(mapStaffToDB(updatedMember, session!.user.id))
-        .eq("id", updatedMember.id)
-    );
+    sync.enqueue({
+      entity: "staff",
+      operation: "update",
+      rowId: updatedMember.id,
+      payload: mapStaffToDB(updatedMember, session?.user?.id ?? ""),
+      label: "თანამშრომლის რედაქტირება"
+    });
     setStaff(prev => prev.map(s => s.id === updatedMember.id ? updatedMember : s));
   };
 
   const handleDeleteStaff = async (id: string) => {
-    // Bookings first, to satisfy the foreign key.
-    const bookingsRemoved = await syncToCloud("თანამშრომლის ჯავშნების წაშლა", () =>
-      supabase.from("bookings").delete().eq("staff_id", id)
-    );
-    if (bookingsRemoved) {
-      await syncToCloud("თანამშრომლის წაშლა", () =>
-        supabase.from("staff").delete().eq("id", id)
-      );
-    }
+    // Bookings first, to satisfy the foreign key — grouped so the member
+    // survives if their bookings could not be removed.
+    const staffGroup = newId("del_staff");
+    sync.enqueue({ entity: "bookings", operation: "delete", rowId: id, matchColumn: "staff_id", label: "თანამშრომლის ჯავშნების წაშლა", groupId: staffGroup });
+    sync.enqueue({ entity: "staff", operation: "delete", rowId: id, label: "თანამშრომლის წაშლა", groupId: staffGroup });
 
     setStaff(prev => prev.filter(s => s.id !== id));
     setBookings(prev => prev.filter(b => b.staffId !== id));
@@ -1553,9 +1476,13 @@ export default function App() {
     if (!target) return;
     const newStatus = target.status === "აქტიური" ? "შვებულებაში" : "აქტიური";
 
-    await syncToCloud("თანამშრომლის სტატუსი", () =>
-      supabase.from("staff").update({ status: newStatus }).eq("id", id)
-    );
+    sync.enqueue({
+      entity: "staff",
+      operation: "update",
+      rowId: id,
+      payload: { status: newStatus },
+      label: "თანამშრომლის სტატუსი"
+    });
 
     setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
   };
@@ -1912,41 +1839,63 @@ export default function App() {
           </div>
         )}
 
-        {/* Unsaved-change warning: the screen is showing data the cloud does not have. */}
-        {syncFailures.length > 0 && !isLocalMode && (
+        {/* Queued writes: still in flight, waiting on the network, or offline. */}
+        {!isLocalMode && sync.pendingCount > 0 && (
+          <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-900/40 px-8 py-2.5 text-xs flex items-center gap-2.5">
+            <RefreshCw className={`w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 ${sync.isOnline ? "animate-spin" : ""}`} />
+            <span className="font-semibold text-amber-800 dark:text-amber-300">
+              {sync.isOnline
+                ? `${sync.pendingCount} ცვლილება ინახება ღრუბელში...`
+                : `${sync.pendingCount} ცვლილება შენახულია და გაიგზავნება კავშირის აღდგენისთანავე`}
+            </span>
+            <span className="text-amber-700/70 dark:text-amber-400/70 truncate">
+              {sync.pending[0].label}
+            </span>
+          </div>
+        )}
+
+        {/* Writes the database rejected outright — these need a decision. */}
+        {!isLocalMode && sync.failedCount > 0 && (
           <div className="bg-rose-50 dark:bg-rose-950/20 border-b border-rose-200 dark:border-rose-900/40 px-8 py-3 text-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold block text-sm mb-0.5 text-rose-800 dark:text-rose-300">
-                    {syncFailures.length} ცვლილება ვერ შეინახა ღრუბელში
+                    {sync.failedCount} ცვლილება ბაზამ არ მიიღო
                   </span>
                   <p className="text-rose-700/80 dark:text-rose-400/80 leading-relaxed max-w-2xl">
-                    ეკრანზე ნაჩვენები მონაცემები არ ემთხვევა ბაზას. „ბაზიდან განახლება“ ჩამოტვირთავს ღრუბლის რეალურ მდგომარეობას — შეუნახავი ცვლილებები დაიკარგება.
+                    ეს ცვლილებები ვერ შეინახება ხელახალი ცდითაც. გაასწორეთ მიზეზი და სცადეთ თავიდან, ან ჩამოტვირთეთ ბაზის რეალური მდგომარეობა — ამ შემთხვევაში ეკრანზე არსებული ცვლილებები დაიკარგება.
                   </p>
-                  <span className="block mt-1 font-mono text-[11px] text-rose-600 dark:text-rose-400">
-                    {syncFailures[syncFailures.length - 1].at} · {syncFailures[syncFailures.length - 1].label}: {syncFailures[syncFailures.length - 1].message}
-                  </span>
+                  <ul className="mt-1.5 space-y-1 max-h-24 overflow-y-auto">
+                    {sync.failed.slice(0, 5).map(op => (
+                      <li key={op.id} className="font-mono text-[11px] text-rose-600 dark:text-rose-400">
+                        <b>{op.label}</b>: {op.lastError}
+                      </li>
+                    ))}
+                    {sync.failedCount > 5 && (
+                      <li className="text-[11px] text-rose-500">…და კიდევ {sync.failedCount - 5}</li>
+                    )}
+                  </ul>
                 </div>
               </div>
-              <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <div className="flex items-center gap-2 self-start shrink-0">
                 <button
-                  onClick={async () => {
-                    if (session?.user?.id) await fetchUserData(session.user.id);
-                    setSyncFailures([]);
-                  }}
+                  onClick={sync.retryFailed}
                   className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white rounded-lg font-bold text-[11px] transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  ბაზიდან განახლება
+                  ხელახლა ცდა
                 </button>
                 <button
-                  onClick={() => setSyncFailures([])}
-                  className="p-1.5 hover:bg-rose-500/10 text-rose-600 rounded-lg transition cursor-pointer"
-                  title="დახურვა"
+                  onClick={async () => {
+                    sync.discardFailed();
+                    if (session?.user?.id) await fetchUserData(session.user.id);
+                  }}
+                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 rounded-lg font-bold text-[11px] transition-all cursor-pointer"
+                  title="ცვლილებების გაუქმება და ბაზის მდგომარეობის ჩამოტვირთვა"
                 >
-                  <X className="w-4 h-4" />
+                  ბაზიდან განახლება
                 </button>
               </div>
             </div>
@@ -2262,7 +2211,9 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     {!isLocalMode && isSupabaseConfigured
-                      ? "კლიენტები, სერვისები, ჯავშნები, შეხსენებები, დოკუმენტები და ავტომატიზაციები დაცულია ღრუბელში. უსაფრთხოებისთვის, ამ მოწყობილობაზე შენახული შეტყობინებების ისტორია გასვლისას წაიშლება."
+                      ? sync.pendingCount + sync.failedCount > 0
+                        ? `ყურადღება: ${sync.pendingCount + sync.failedCount} ცვლილება ჯერ არ არის შენახული ღრუბელში და გასვლისას დაიკარგება. გირჩევთ დაელოდოთ სინქრონიზაციის დასრულებას.`
+                        : "კლიენტები, სერვისები, ჯავშნები, შეხსენებები, დოკუმენტები და ავტომატიზაციები დაცულია ღრუბელში. უსაფრთხოებისთვის, ამ მოწყობილობაზე შენახული შეტყობინებების ისტორია გასვლისას წაიშლება."
                       : "თქვენ იმყოფებით ლოკალურ რეჟიმში. გასვლისას თქვენი ლოკალური მონაცემები გასუფთავდება. მონაცემების შენარჩუნებისთვის გირჩევთ გამოიყენოთ 'სარეზერვო ასლი' ავტორიზაციის გვერდზე."
                     }
                   </p>
