@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type CurrencyCode = "GEL" | "USD" | "EUR" | "GBP";
+
 export interface Business {
   id: string;
   name: string;
@@ -13,17 +15,38 @@ export interface Business {
   address?: string;
   category?: string; // e.g., "სილამაზის სალონი", "ავტოსერვისი", "სტომატოლოგია"
   logoColor: string; // Tailwind bg color class
-  currency?: "GEL" | "USD" | "EUR";
+  currency?: CurrencyCode;
 }
 
-export function formatPrice(price: number, currency: "GEL" | "USD" | "EUR" = "GEL"): string {
+export function formatPrice(price: number, currency: CurrencyCode = "GEL"): string {
+  const num = Number(price) || 0;
   if (currency === "USD") {
-    return `$${price}`;
+    return `$${num.toLocaleString("en-US")}`;
   }
   if (currency === "EUR") {
-    return `€${price}`;
+    return `€${num.toLocaleString("de-DE")}`;
   }
-  return `${price} ₾`;
+  if (currency === "GBP") {
+    return `£${num.toLocaleString("en-GB")}`;
+  }
+  return `${num.toLocaleString("ka-GE")} ₾`;
+}
+
+export interface CommunicationItem {
+  id: string;
+  type: "call" | "sms" | "email" | "whatsapp" | "facebook";
+  date: string;
+  summary: string;
+  author: string;
+}
+
+export interface FileAttachment {
+  id: string;
+  fileName: string;
+  fileSize: string;
+  fileType: "pdf" | "image" | "doc";
+  uploadedAt: string;
+  url?: string;
 }
 
 export interface Client {
@@ -31,10 +54,58 @@ export interface Client {
   name: string;
   phone: string;
   email: string;
+  company?: string;
+  source?: "Facebook" | "Website" | "WhatsApp" | "Google Ads" | "Instagram" | "Direct";
+  leadValue?: number;
   totalBookings: number;
   totalSpent: number;
   notes?: string;
-  tag?: string;
+  tag?: string; // "წარმატებული გარიგება" | "მუშაობის პროცესში" | "წარუმატებლად დახურული" | "ახალი ლიდი"
+  assignedStaffId?: string;
+  communications?: CommunicationItem[];
+  attachments?: FileAttachment[];
+}
+
+export interface DocumentInvoice {
+  id: string;
+  businessId: string;
+  clientId: string;
+  clientName: string;
+  docType: "proposal" | "contract" | "invoice"; // შეთავაზება, ხელშეკრულება, ინვოისი
+  docNumber: string;
+  title: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  dueDate?: string;
+  status: "გადახდილი" | "მოლოდინში" | "გაგზავნილი" | "გაუქმებული";
+  items?: { name: string; qty: number; price: number }[];
+  notes?: string;
+}
+
+export interface WorkflowAutomation {
+  id: string;
+  businessId: string;
+  title: string;
+  triggerEvent: "new_lead" | "status_change" | "overdue_task" | "booking_created";
+  triggerLabel: string;
+  actionType: "send_sms" | "send_email" | "assign_staff" | "create_followup";
+  actionLabel: string;
+  enabled: boolean;
+  executionCount: number;
+}
+
+export interface IntegrationConfig {
+  facebookLeadAds: boolean;
+  whatsappBusiness: boolean;
+  gmailOutlook: boolean;
+  googleCalendar: boolean;
+  telegramBot: boolean;
+  stripePayPal: boolean;
+  facebookPageToken?: string;
+  whatsappApiKey?: string;
+  gmailAddress?: string;
+  googleCalendarEmail?: string;
+  telegramBotToken?: string;
 }
 
 export interface Service {

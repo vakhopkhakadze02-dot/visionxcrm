@@ -4,8 +4,31 @@
  */
 
 import React, { useState, useMemo } from "react";
-import { Search, Plus, UserPlus, Phone, Mail, FileText, Trash2, Edit2, Wallet, CalendarRange, Download, FileSpreadsheet } from "lucide-react";
-import { Client, formatPrice } from "../types";
+import { 
+  Search, 
+  Plus, 
+  UserPlus, 
+  Phone, 
+  Mail, 
+  FileText, 
+  Trash2, 
+  Edit2, 
+  Wallet, 
+  CalendarRange, 
+  Download, 
+  FileSpreadsheet,
+  Building,
+  Share2,
+  Paperclip,
+  MessageSquare,
+  Send,
+  Upload,
+  Globe,
+  Facebook,
+  MessageCircle,
+  Clock
+} from "lucide-react";
+import { Client, CommunicationItem, FileAttachment, formatPrice, CurrencyCode } from "../types";
 import ConfirmModal from "./ConfirmModal";
 
 export const tagStyles: Record<string, { bg: string, dot: string, label: string }> = {
@@ -31,7 +54,7 @@ interface ClientsViewProps {
   onAddClient: (client: Omit<Client, "id" | "totalBookings" | "totalSpent">) => void;
   onEditClient: (client: Client) => void;
   onDeleteClient: (id: string) => void;
-  currency?: "GEL" | "USD" | "EUR";
+  currency?: CurrencyCode;
 }
 
 export default function ClientsView({
@@ -43,17 +66,25 @@ export default function ClientsView({
 }: ClientsViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>("all");
+  const [selectedSourceFilter, setSelectedSourceFilter] = useState<string>("all");
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Communication / History modal state
+  const [activeCommClient, setActiveCommClient] = useState<Client | null>(null);
+  const [commType, setCommType] = useState<CommunicationItem["type"]>("call");
+  const [commSummary, setCommSummary] = useState("");
+
   // CSV Export for Clients
   const handleExportCSV = () => {
     const currencySign = currency === "USD" ? "$" : currency === "EUR" ? "€" : "₾";
-    const headers = ["სახელი", "ტელეფონი", "ელ-ფოსტა", "ჯავშნების რაოდენობა", `ჯამური დანახარჯი (${currencySign})`, "შენიშვნა"];
+    const headers = ["სახელი", "კომპანია", "წყარო", "ტელეფონი", "ელ-ფოსტა", "ჯავშნები", `ჯამური დანახარჯი (${currencySign})`, "შენიშვნა"];
     const rows = clients.map(c => [
       c.name,
+      c.company || "",
+      c.source || "Direct",
       c.phone,
       c.email || "",
       c.totalBookings,
@@ -70,7 +101,7 @@ export default function ClientsView({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", "visionx_clients_export.csv");
+    link.setAttribute("download", "visionx_crm_leads_clients.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -80,6 +111,8 @@ export default function ClientsView({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
+  const [source, setSource] = useState<Client["source"]>("Facebook");
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState<string>("მუშაობის პროცესში");
 
@@ -89,6 +122,8 @@ export default function ClientsView({
     setName("");
     setPhone("");
     setEmail("");
+    setCompany("");
+    setSource("Facebook");
     setNotes("");
     setTag("მუშაობის პროცესში");
     setShowModal(true);
@@ -100,6 +135,8 @@ export default function ClientsView({
     setName(client.name);
     setPhone(client.phone);
     setEmail(client.email);
+    setCompany(client.company || "");
+    setSource(client.source || "Facebook");
     setNotes(client.notes || "");
     setTag(client.tag || "მუშაობის პროცესში");
     setShowModal(true);
@@ -119,6 +156,8 @@ export default function ClientsView({
         name,
         phone,
         email,
+        company: company.trim() || undefined,
+        source: source || "Direct",
         notes: notes.trim() || undefined,
         tag: tag || undefined
       });
@@ -127,6 +166,8 @@ export default function ClientsView({
         name,
         phone,
         email,
+        company: company.trim() || undefined,
+        source: source || "Direct",
         notes: notes.trim() || undefined,
         tag: tag || undefined
       });
@@ -134,35 +175,59 @@ export default function ClientsView({
     setShowModal(false);
   };
 
-  // Filter clients based on search query and tag filter (memoized for high load performance)
+  const handleAddCommunicationLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCommClient || !commSummary.trim()) return;
+
+    const newLog: CommunicationItem = {
+      id: "comm_" + Date.now(),
+      type: commType,
+      date: new Date().toLocaleString("ka-GE"),
+      summary: commSummary.trim(),
+      author: "ოპერატორი"
+    };
+
+    const updatedClient: Client = {
+      ...activeCommClient,
+      communications: [newLog, ...(activeCommClient.communications || [])]
+    };
+
+    onEditClient(updatedClient);
+    setActiveCommClient(updatedClient);
+    setCommSummary("");
+  };
+
+  // Filter clients based on search query, tag, and source
   const filteredClients = useMemo(() => {
     const query = searchQuery.toLowerCase();
     return clients.filter(c => {
       const matchesSearch = c.name.toLowerCase().includes(query) ||
         c.phone.includes(searchQuery) ||
+        (c.company && c.company.toLowerCase().includes(query)) ||
         (c.email && c.email.toLowerCase().includes(query));
       const matchesTag = selectedTagFilter === "all" || c.tag === selectedTagFilter;
-      return matchesSearch && matchesTag;
+      const matchesSource = selectedSourceFilter === "all" || c.source === selectedSourceFilter;
+      return matchesSearch && matchesTag && matchesSource;
     });
-  }, [clients, searchQuery, selectedTagFilter]);
+  }, [clients, searchQuery, selectedTagFilter, selectedSourceFilter]);
 
   return (
     <div className="space-y-5">
       {/* Top action section */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-5">
         <div>
-          <h1 className="font-display font-bold text-xl text-slate-900 dark:text-slate-100 tracking-tight">
-            კლიენტების ბაზა
+          <h1 className="font-display font-bold text-xl text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2">
+            კლიენტები & ლიდები (Contacts DB)
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-semibold">
-            მართეთ თქვენი მომხმარებლების მონაცემები, კონტაქტები და ვიზიტების ისტორია
+            მართეთ მომხმარებლები, ლიდის წყაროები (FB, WhatsApp, Web), კომუნიკაციის ისტორია და ფაილები
           </p>
         </div>
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           <button
             onClick={handleExportCSV}
             className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
-            title="კლიენტების ექსპორტი CSV ფორმატში"
+            title="ექსპორტი CSV"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>ექსპორტი (.CSV)</span>
@@ -172,85 +237,65 @@ export default function ClientsView({
             className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
-            <span>+ ახალი კლიენტი</span>
+            <span>+ ახალი ლიდი / კლიენტი</span>
           </button>
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search & Filters */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
-            placeholder="მოძებნეთ კლიენტი სახელით, ტელეფონით ან მეილით..."
+            placeholder="მოძებნეთ კლიენტი, კომპანია, ტელეფონი ან მეილი..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-200 dark:bg-slate-950"
           />
         </div>
 
-        {/* Tag Filters */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider mr-1">სტატუსის ფილტრი:</span>
-          <button
-            onClick={() => setSelectedTagFilter("all")}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
-              selectedTagFilter === "all"
-                ? "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700"
-                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
-            }`}
+        {/* Source & Tag Filters */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Lead Source Filter */}
+          <select
+            value={selectedSourceFilter}
+            onChange={(e) => setSelectedSourceFilter(e.target.value)}
+            className="px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300"
           >
-            ყველა
-          </button>
-          <button
-            onClick={() => setSelectedTagFilter("წარმატებული გარიგება")}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
-              selectedTagFilter === "წარმატებული გარიგება"
-                ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800"
-                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
-            }`}
+            <option value="all">ყველა წყარო (Sources)</option>
+            <option value="Facebook">Facebook Ads</option>
+            <option value="Website">Website</option>
+            <option value="WhatsApp">WhatsApp</option>
+            <option value="Google Ads">Google Ads</option>
+            <option value="Instagram">Instagram</option>
+            <option value="Direct">Direct / პირდაპირი</option>
+          </select>
+
+          {/* Tag Filter */}
+          <select
+            value={selectedTagFilter}
+            onChange={(e) => setSelectedTagFilter(e.target.value)}
+            className="px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            წარმატებული
-          </button>
-          <button
-            onClick={() => setSelectedTagFilter("მუშაობის პროცესში")}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
-              selectedTagFilter === "მუშაობის პროცესში"
-                ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800"
-                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            მიმდინარე
-          </button>
-          <button
-            onClick={() => setSelectedTagFilter("წარუმატებლად დახურული")}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
-              selectedTagFilter === "წარუმატებლად დახურული"
-                ? "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800"
-                : "bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900"
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-            წარუმატებელი
-          </button>
+            <option value="all">ყველა სტატუსი</option>
+            <option value="წარმატებული გარიგება">წარმატებული</option>
+            <option value="მუშაობის პროცესში">მიმდინარე</option>
+            <option value="წარუმატებლად დახურული">წარუმატებელი</option>
+          </select>
         </div>
       </div>
 
       {/* Clients Grid */}
       {filteredClients.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center space-y-3 shadow-xs">
-          <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center border border-slate-150 dark:border-slate-800 mx-auto">
-            <Search className="w-6 h-6 text-slate-300" />
-          </div>
+          <Search className="w-8 h-8 text-slate-300 mx-auto" />
           <p className="text-slate-500 text-xs font-semibold">
-            შესაბამისი კლიენტი ვერ მოიძებნა
+            შესაბამისი კლიენტი / ლიდი ვერ მოიძებნა
           </p>
           <button
             onClick={handleOpenAdd}
-            className="text-xs bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+            className="text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1.5 rounded-lg"
           >
             + ახალი კლიენტის დამატება
           </button>
@@ -262,20 +307,25 @@ export default function ClientsView({
               key={client.id}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-slate-350 dark:hover:border-slate-700 transition-all duration-150 flex flex-col justify-between shadow-xs space-y-3 group relative"
             >
-              {/* Client Info Card */}
               <div className="space-y-2.5">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs">
+                    <div className="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs shrink-0">
                       {client.name.split(" ").map(w => w[0]).join("")}
                     </div>
                     <div>
                       <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs leading-tight">
                         {client.name}
                       </h3>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
-                          ID: {client.id.replace("cli_", "#")}
+                      {client.company && (
+                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 mt-0.5">
+                          <Building className="w-3 h-3" />
+                          <span>{client.company}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <span className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded font-mono font-bold">
+                          {client.source || "Facebook"}
                         </span>
                         {client.tag && tagStyles[client.tag] && (
                           <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold border flex items-center gap-1 ${tagStyles[client.tag].bg}`}>
@@ -287,18 +337,17 @@ export default function ClientsView({
                     </div>
                   </div>
                   
-                  {/* Action row visible on hover / subtle */}
                   <div className="flex items-center gap-1 opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => handleOpenEdit(client)}
-                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded transition-colors cursor-pointer"
+                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 rounded cursor-pointer"
                       title="რედაქტირება"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => setClientToDelete(client)}
-                      className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-400 hover:text-rose-600 dark:hover:text-rose-300 rounded transition-colors cursor-pointer"
+                      className="p-1 hover:bg-rose-50 text-rose-400 rounded cursor-pointer"
                       title="წაშლა"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -308,53 +357,111 @@ export default function ClientsView({
 
                 <hr className="border-slate-100 dark:border-slate-800" />
 
-                {/* Contacts */}
                 <div className="space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
                   <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                    <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     <span className="font-semibold font-mono">{client.phone}</span>
                   </div>
                   {client.email && (
                     <div className="flex items-center gap-2">
-                      <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span className="truncate">{client.email}</span>
                     </div>
                   )}
-                  {client.notes && (
-                    <div className="flex items-start gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-850 p-2 rounded-lg mt-1.5">
-                      <FileText className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 italic leading-snug line-clamp-2">
-                        {client.notes}
-                      </p>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* CRM Statistics */}
-              <div className="bg-slate-50 dark:bg-slate-950/55 border border-slate-150 dark:border-slate-850 rounded-lg p-2.5 grid grid-cols-2 gap-2 text-center">
-                <div className="border-r border-slate-200/50 dark:border-slate-800/55">
-                  <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold block uppercase tracking-wider">
-                    ჯავშნები
-                  </span>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1 mt-0.5">
-                    <CalendarRange className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    {client.totalBookings}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold block uppercase tracking-wider">
-                    ჯამური ხარჯი
-                  </span>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-center gap-0.5 mt-0.5">
-                    <Wallet className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    {formatPrice(client.totalSpent, currency)}
-                  </span>
+              {/* Action Toolbar for Communication & History */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-1">
+                <button
+                  onClick={() => setActiveCommClient(client)}
+                  className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 px-2 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <MessageSquare className="w-3 h-3" />
+                  <span>კომუნიკაციის ისტორია ({client.communications?.length || 0})</span>
+                </button>
+
+                <div className="text-[10px] text-slate-400 font-mono font-bold">
+                  {formatPrice(client.totalSpent, currency)}
                 </div>
               </div>
-
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Communication Log Modal */}
+      {activeCommClient && (
+        <div className="fixed inset-0 bg-[#0f172a]/80 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-lg w-full border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-150 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/50">
+              <div>
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-xs flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-indigo-500" />
+                  კომუნიკაციის ისტორია - {activeCommClient.name}
+                </h3>
+                <p className="text-[10px] text-slate-400 font-semibold">{activeCommClient.phone}</p>
+              </div>
+              <button 
+                onClick={() => setActiveCommClient(null)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 leading-none cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Add New Log */}
+              <form onSubmit={handleAddCommunicationLog} className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">+ ახალი ჩანაწერი</span>
+                <div className="flex gap-2">
+                  <select
+                    value={commType}
+                    onChange={(e) => setCommType(e.target.value as any)}
+                    className="px-2 py-1 border border-slate-200 dark:border-slate-800 rounded-lg text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold"
+                  >
+                    <option value="call">📞 ზარი</option>
+                    <option value="sms">📱 SMS</option>
+                    <option value="email">📧 Email</option>
+                    <option value="whatsapp">💬 WhatsApp</option>
+                    <option value="facebook">Facebook</option>
+                  </select>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ჩანაწერი (მაგ: დავურეკეთ, შევუთანხმდით პრეზენტაციაზე...)"
+                    value={commSummary}
+                    onChange={(e) => setCommSummary(e.target.value)}
+                    className="flex-1 px-3 py-1 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-200 dark:bg-slate-900"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-1 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700"
+                  >
+                    დამატება
+                  </button>
+                </div>
+              </form>
+
+              {/* History List */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">წინა კომუნიკაციები</span>
+                {(!activeCommClient.communications || activeCommClient.communications.length === 0) ? (
+                  <p className="text-slate-400 text-center italic py-4">ისტორია ცარიელია</p>
+                ) : (
+                  activeCommClient.communications.map(log => (
+                    <div key={log.id} className="p-3 bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-400">
+                        <span className="uppercase text-indigo-600 dark:text-indigo-400">{log.type}</span>
+                        <span>{log.date}</span>
+                      </div>
+                      <p className="text-slate-800 dark:text-slate-200 font-semibold">{log.summary}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -365,25 +472,24 @@ export default function ClientsView({
             <div className="p-4 border-b border-slate-150 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/50">
               <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 text-xs">
                 <UserPlus className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                {editingClient ? "მომხმარებლის რედაქტირება" : "ახალი კლიენტის დამატება"}
+                {editingClient ? "მომხმარებლის რედაქტირება" : "ახალი კლიენტის / ლიდის დამატება"}
               </h3>
               <button 
                 onClick={() => setShowModal(false)}
-                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-lg font-bold p-1 leading-none cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 leading-none cursor-pointer"
               >
                 &times;
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-slate-800 dark:text-slate-200">
+            <form onSubmit={handleSubmit} className="p-4 space-y-3 text-slate-800 dark:text-slate-200">
               {error && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 text-xs font-bold rounded-lg flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
-                  <span>{error}</span>
+                <div className="p-2.5 bg-rose-50 text-rose-600 text-xs font-bold rounded-lg">
+                  {error}
                 </div>
               )}
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                  სახელი და გვარი <span className="text-rose-500">*</span>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  სახელი და გვარი *
                 </label>
                 <input
                   type="text"
@@ -391,91 +497,95 @@ export default function ClientsView({
                   placeholder="მაგ: გიორგი ბერიძე"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
+                  className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                  ტელეფონის ნომერი <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="მაგ: +995 599 123 456"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950 font-mono"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                    ტელეფონი *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="+995 599 123 456"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                    კომპანია
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="მაგ: შპს ვექტორი"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                  ელ-ფოსტა
-                </label>
-                <input
-                  type="email"
-                  placeholder="მაგ: info@gmail.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
-                  CRM სტატუსი (თეგი)
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTag("წარმატებული გარიგება")}
-                    className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                      tag === "წარმატებული გარიგება"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-500 shadow-xs scale-[1.02] dark:bg-emerald-950/25 dark:text-emerald-400 dark:border-emerald-800"
-                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-850"
-                    }`}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                    ელ-ფოსტა
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="info@gmail.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                    ლიდის წყარო (Source)
+                  </label>
+                  <select
+                    value={source}
+                    onChange={(e) => setSource(e.target.value as any)}
+                    className="w-full px-2 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-semibold"
                   >
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span>წარმატებული</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTag("მუშაობის პროცესში")}
-                    className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                      tag === "მუშაობის პროცესში"
-                        ? "bg-amber-50 text-amber-700 border-amber-500 shadow-xs scale-[1.02] dark:bg-amber-950/25 dark:text-amber-400 dark:border-amber-800"
-                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-850"
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    <span>მიმდინარე</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTag("წარუმატებლად დახურული")}
-                    className={`py-2 px-1 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                      tag === "წარუმატებლად დახურული"
-                        ? "bg-rose-50 text-rose-700 border-rose-500 shadow-xs scale-[1.02] dark:bg-rose-950/25 dark:text-rose-400 dark:border-rose-800"
-                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-400 dark:border-slate-850"
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-rose-500" />
-                    <span>წარუმატებელი</span>
-                  </button>
+                    <option value="Facebook">Facebook Ads</option>
+                    <option value="Website">Website</option>
+                    <option value="WhatsApp">WhatsApp</option>
+                    <option value="Google Ads">Google Ads</option>
+                    <option value="Instagram">Instagram</option>
+                    <option value="Direct">Direct / პირდაპირი</option>
+                  </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                  შენიშვნა / კომენტარი
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  CRM სტატუსი
+                </label>
+                <select
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-semibold"
+                >
+                  <option value="მუშაობის პროცესში">მიმდინარე (In Progress)</option>
+                  <option value="წარმატებული გარიგება">წარმატებული (Won)</option>
+                  <option value="წარუმატებლად დახურული">წარუმატებელი (Lost)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  შენიშვნა
                 </label>
                 <textarea
-                  rows={3}
-                  placeholder="სასურველი პრეფერენციები ან ალერგიული რეაქციები..."
+                  rows={2}
+                  placeholder="სასურველი პრეფერენციები..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
+                  className="w-full px-3 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 dark:bg-slate-950"
                 />
               </div>
 
@@ -483,13 +593,13 @@ export default function ClientsView({
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-3.5 py-2 text-xs border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors font-semibold cursor-pointer"
+                  className="px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-800 text-slate-600 rounded-lg font-semibold"
                 >
                   გაუქმება
                 </button>
                 <button
                   type="submit"
-                  className="px-3.5 py-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-bold cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs bg-indigo-600 text-white rounded-lg font-bold"
                 >
                   {editingClient ? "შენახვა" : "დამატება"}
                 </button>
@@ -508,7 +618,7 @@ export default function ClientsView({
           }
         }}
         title="კლიენტის წაშლა"
-        message={clientToDelete ? `ნამდვილად გსურთ კლიენტის (${clientToDelete.name}) წაშლა? წაიშლება კლიენტთან დაკავშირებული ყველა ჯავშანი და შეხსენება.` : ""}
+        message={clientToDelete ? `ნამდვილად გსურთ კლიენტის (${clientToDelete.name}) წაშლა?` : ""}
         confirmText="წაშლა"
         cancelText="გაუქმება"
         variant="danger"

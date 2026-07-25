@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { X, User, Sparkles, UserSquare2, Calendar, Clock, DollarSign, Euro, MessageSquare } from "lucide-react";
-import { Booking, Client, Service, Staff, formatPrice } from "../types";
+import { Booking, Client, Service, Staff, formatPrice, CurrencyCode } from "../types";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -18,7 +18,7 @@ interface BookingModalProps {
   staff: Staff[];
   selectedBusinessId: string;
   defaultDate?: string;
-  currency?: "GEL" | "USD" | "EUR";
+  currency?: CurrencyCode;
 }
 
 export default function BookingModal({

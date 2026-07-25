@@ -20,9 +20,12 @@ import {
   Moon,
   Mail,
   Notebook,
-  Layers
+  Layers,
+  FileText,
+  Zap,
+  Share2
 } from "lucide-react";
-import { Business } from "../types";
+import { Business, CurrencyCode } from "../types";
 
 interface SidebarProps {
   currentTab: string;
@@ -37,7 +40,7 @@ interface SidebarProps {
   onClose: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
-  onUpdateCurrency: (currency: "GEL" | "USD" | "EUR") => void;
+  onUpdateCurrency: (currency: CurrencyCode) => void;
 }
 
 export default function Sidebar({
@@ -96,13 +99,16 @@ export default function Sidebar({
   const menuItems = [
     { id: "dashboard", label: "მთავარი", icon: LayoutDashboard },
     { id: "calendar", label: "კალენდარი", icon: Calendar },
-    { id: "clients", label: "კლიენტები", icon: Users },
-    { id: "pipeline", label: "CRM ფილტრი", icon: Layers },
+    { id: "clients", label: "კლიენტები / ლიდები", icon: Users },
+    { id: "pipeline", label: "CRM Pipeline", icon: Layers },
+    { id: "documents", label: "ინვოისები & შეთავაზებები", icon: FileText },
+    { id: "automations", label: "ავტომატიზაცია", icon: Zap },
+    { id: "integrations", label: "ინტეგრაციები", icon: Share2 },
     { id: "services", label: "სერვისები", icon: Sparkles },
     { id: "staff", label: "თანამშრომლები", icon: UserSquare2 },
     { id: "notifications", label: "შეტყობინებები", icon: Mail },
     { id: "followups", label: "ზარები / შეხსენებები", icon: Notebook },
-    { id: "analytics", label: "ფინანსები", icon: BarChart3 }
+    { id: "analytics", label: "ფინანსები & ანალიტიკა", icon: BarChart3 }
   ];
 
   const handleAddSubmit = (e: React.FormEvent) => {

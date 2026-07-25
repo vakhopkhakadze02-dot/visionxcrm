@@ -5,7 +5,7 @@
 
 import React, { useState } from "react";
 import { Plus, Scissors, Clock, DollarSign, Euro, Coins, Tag, Trash2, Edit2, Layers } from "lucide-react";
-import { Service, formatPrice } from "../types";
+import { Service, formatPrice, CurrencyCode } from "../types";
 import ConfirmModal from "./ConfirmModal";
 
 interface ServicesViewProps {
@@ -13,7 +13,7 @@ interface ServicesViewProps {
   onAddService: (service: Omit<Service, "id">) => void;
   onEditService: (service: Service) => void;
   onDeleteService: (id: string) => void;
-  currency?: "GEL" | "USD" | "EUR";
+  currency?: CurrencyCode;
 }
 
 export default function ServicesView({
