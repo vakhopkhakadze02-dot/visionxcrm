@@ -156,18 +156,15 @@ export interface NotificationLog {
   message: string;
 }
 
+/**
+ * Delivery credentials deliberately live server-side (see
+ * supabase/functions/send-notification), so only templates and toggles are here.
+ */
 export interface NotificationSettings {
   smsEnabled: boolean;
   emailEnabled: boolean;
   smsTemplate: string;
   emailTemplate: string;
-  twilioSid?: string;
-  twilioToken?: string;
-  twilioFrom?: string;
-  emailjsServiceId?: string;
-  emailjsTemplateId?: string;
-  emailjsUserId?: string;
-  emailjsAccessToken?: string;
 }
 
 export interface Followup {

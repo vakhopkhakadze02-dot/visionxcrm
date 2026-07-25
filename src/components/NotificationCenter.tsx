@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Bell, BellOff, BellRing, Check, CheckCheck, Clock, Sparkles, Trash2, User, X } from "lucide-react";
 import { Booking, Client, Service, Staff } from "../types";
+import { StorageScope, readScoped, writeScoped } from "../storage";
 
 interface LocalNotification {
   id: string;
@@ -26,6 +27,8 @@ interface NotificationCenterProps {
   services: Service[];
   staff: Staff[];
   selectedBusinessId: string;
+  /** Storage scope of the current account; null until auth resolves. */
+  storageScope: StorageScope | null;
 }
 
 export default function NotificationCenter({
@@ -33,17 +36,13 @@ export default function NotificationCenter({
   clients,
   services,
   staff,
-  selectedBusinessId
+  selectedBusinessId,
+  storageScope
 }: NotificationCenterProps) {
-  const [notifications, setNotifications] = useState<LocalNotification[]>(() => {
-    const saved = localStorage.getItem("vxcrm_notifications");
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [notifiedIds, setNotifiedIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem("vxcrm_notified_booking_ids");
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Reminders name clients and their bookings, so they are cached per account.
+  const [notifications, setNotifications] = useState<LocalNotification[]>([]);
+  const [notifiedIds, setNotifiedIds] = useState<string[]>([]);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [toast, setToast] = useState<LocalNotification | null>(null);
@@ -51,14 +50,27 @@ export default function NotificationCenter({
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Sync state to localStorage
+  const scopeId = storageScope
+    ? storageScope.kind === "local" ? "local" : storageScope.userId
+    : null;
+
+  // Load this scope's reminders, then keep them in sync.
   useEffect(() => {
-    localStorage.setItem("vxcrm_notifications", JSON.stringify(notifications));
-  }, [notifications]);
+    if (!storageScope) return;
+    setNotifications(readScoped(storageScope, "notifications", []));
+    setNotifiedIds(readScoped(storageScope, "notified_booking_ids", []));
+    setLoadedScope(scopeId);
+  }, [scopeId]);
+
+  const canPersist = storageScope !== null && loadedScope === scopeId;
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_notified_booking_ids", JSON.stringify(notifiedIds));
-  }, [notifiedIds]);
+    if (canPersist) writeScoped(storageScope!, "notifications", notifications);
+  }, [notifications, canPersist]);
+
+  useEffect(() => {
+    if (canPersist) writeScoped(storageScope!, "notified_booking_ids", notifiedIds);
+  }, [notifiedIds, canPersist]);
 
   // Request browser Notification permissions
   useEffect(() => {

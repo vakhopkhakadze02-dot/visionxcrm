@@ -51,28 +51,31 @@ import AutomationsView from "./components/AutomationsView";
 import IntegrationsView from "./components/IntegrationsView";
 import CurrencySelector from "./components/CurrencySelector";
 
-import { 
-  initialBusinesses, 
-  initialClients, 
-  initialServices, 
-  initialStaff, 
-  initialBookings 
+import {
+  initialBusinesses,
+  initialClients,
+  initialServices,
+  initialStaff,
+  initialBookings
 } from "./initialData";
 
+import {
+  StorageScope,
+  LOCAL_SCOPE,
+  readScoped,
+  writeScoped,
+  clearScope
+} from "./storage";
+import { SETUP_SQL, TAG_MIGRATION_SQL } from "./dbSchema";
+
 // --- DB DATA MAPPERS ---
-const getBusinessCurrency = (businessId: string): "GEL" | "USD" | "EUR" => {
-  try {
-    const currencies = localStorage.getItem("vxcrm_business_currencies");
-    if (currencies) {
-      const parsed = JSON.parse(currencies);
-      return parsed[businessId] || "GEL";
-    }
-  } catch (e) {}
-  return "GEL";
+const getBusinessCurrency = (scope: StorageScope, businessId: string): CurrencyCode => {
+  const currencies = readScoped<Record<string, CurrencyCode>>(scope, "business_currencies", {});
+  return currencies[businessId] || "GEL";
 };
 
-const mapBusinessFromDB = (b: any): Business => {
-  const currency = getBusinessCurrency(b.id);
+const mapBusinessFromDB = (b: any, scope: StorageScope): Business => {
+  const currency = getBusinessCurrency(scope, b.id);
   return {
     id: b.id,
     name: b.name,
@@ -238,6 +241,149 @@ const mapFollowupToDB = (f: Followup, userId: string) => ({
   notes: f.notes || null
 });
 
+// --- NOTIFICATION DELIVERY ---
+
+/** What the send-notification Edge Function reports back. */
+interface DeliveryResult {
+  status: "sent" | "demo" | "error";
+  message?: string;
+}
+
+const DELIVERY_STATUS_LABEL: Record<DeliveryResult["status"], NotificationLog["status"]> = {
+  sent: "გაგზავნილი",
+  demo: "დემო_გაგზავნილი",
+  error: "შეცდომა"
+};
+
+// --- DEFAULTS ---
+
+const LOADING_BUSINESS: Business = {
+  id: "bus_loading",
+  name: "იტვირთება...",
+  ownerName: "...",
+  role: "მფლობელი",
+  logoColor: "bg-slate-300"
+};
+
+const LOCAL_BUSINESS: Business = {
+  id: "bus_local",
+  name: "ლოკალური ბიზნესი",
+  ownerName: "სტუმარი",
+  role: "მფლობელი",
+  logoColor: "bg-indigo-600 text-white"
+};
+
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  smsEnabled: true,
+  emailEnabled: true,
+  smsTemplate: `გამარჯობა {client_name}, თქვენ წარმატებით ჩაეწერეთ სერვისზე: "{service_name}". თარიღი: {date}, დრო: {time}. ფასი: {price} ₾. სპეციალისტი: {staff_name}. მადლობა რომ ირჩევთ ჩვენს სერვისს!`,
+  emailTemplate: `გამარჯობა {client_name},\n\nთქვენ წარმატებით დარეგისტრირდით სერვისზე: "{service_name}".\n\nჯავშნის დეტალები:\n- თარიღი: {date}\n- დრო: {time}\n- სპეციალისტი: {staff_name}\n- მომსახურების ფასი: {price} ₾\n- დამატებითი კომენტარი: {notes}\n\nგელოდებით სიყვარულით!\n{business_name}`
+};
+
+/**
+ * Older builds kept Twilio/EmailJS credentials in this blob. They are dropped on
+ * read (and overwritten on the next save) now that delivery is server-side.
+ */
+const loadNotificationSettings = (scope: StorageScope): NotificationSettings => {
+  const saved = readScoped<Partial<NotificationSettings> | null>(scope, "notification_settings", null);
+  if (!saved) return DEFAULT_NOTIFICATION_SETTINGS;
+  return {
+    smsEnabled: saved.smsEnabled ?? DEFAULT_NOTIFICATION_SETTINGS.smsEnabled,
+    emailEnabled: saved.emailEnabled ?? DEFAULT_NOTIFICATION_SETTINGS.emailEnabled,
+    smsTemplate: saved.smsTemplate || DEFAULT_NOTIFICATION_SETTINGS.smsTemplate,
+    emailTemplate: saved.emailTemplate || DEFAULT_NOTIFICATION_SETTINGS.emailTemplate
+  };
+};
+
+const DEFAULT_INTEGRATION_CONFIG: IntegrationConfig = {
+  facebookLeadAds: true,
+  whatsappBusiness: true,
+  gmailOutlook: true,
+  googleCalendar: true,
+  telegramBot: false,
+  stripePayPal: false,
+  facebookPageToken: "EAAB...mock_page_access_token",
+  whatsappApiKey: "wa_biz_key_88912",
+  gmailAddress: "office@company.ge",
+  googleCalendarEmail: "calendar@company.ge",
+  telegramBotToken: ""
+};
+
+const DEMO_DOCUMENTS: DocumentInvoice[] = [
+  {
+    id: "doc_101",
+    businessId: "bus_1",
+    clientId: "cli_1",
+    clientName: "გიორგი ბერიძე",
+    docType: "invoice",
+    docNumber: "INV-2026-001",
+    title: "მარკეტინგული მომსახურების ინვოისი",
+    amount: 450,
+    date: "2026-07-10",
+    dueDate: "2026-07-20",
+    status: "გადახდილი",
+    notes: "გადახდილია საბანკო გადარიცხვით"
+  }
+];
+
+const DEMO_WORKFLOWS: WorkflowAutomation[] = [
+  {
+    id: "wf_1",
+    businessId: "bus_1",
+    title: "ახალ ლიდზე SMS შეტყობინება",
+    triggerEvent: "new_lead",
+    triggerLabel: "ახალი ლიდის რეგისტრაცია",
+    actionType: "send_sms",
+    actionLabel: "მისალმების SMS-ის გაგზავნა",
+    enabled: true,
+    executionCount: 14
+  },
+  {
+    id: "wf_2",
+    businessId: "bus_1",
+    title: "ჯავშნის შეხსენება",
+    triggerEvent: "booking_created",
+    triggerLabel: "ახალი ჯავშნის შექმნა",
+    actionType: "send_email",
+    actionLabel: "დასტურის ელ-ფოსტის გაგზავნა",
+    enabled: true,
+    executionCount: 28
+  }
+];
+
+const demoFollowups = (businessId: string): Followup[] => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+
+  return [
+    {
+      id: "initial_f1",
+      businessId,
+      clientName: "მარიამ ბერიძე",
+      clientPhone: "599123456",
+      date: tomorrowStr,
+      time: "11:30",
+      type: "call",
+      topic: "ხვალ გასაწევ მომსახურებაზე დადასტურება",
+      status: "მოლოდინში",
+      notes: "სთხოვა რომ ზუსტად 11:30-ზე დავურეკოთ"
+    },
+    {
+      id: "initial_f2",
+      businessId,
+      clientName: "ლევან კალანდაძე",
+      clientPhone: "555987654",
+      date: tomorrowStr,
+      time: "15:00",
+      type: "message",
+      topic: "შემდეგი ვიზიტის შეთავაზება",
+      status: "მოლოდინში",
+      notes: "WhatsApp-ით გაგზავნა"
+    }
+  ];
+};
+
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
@@ -279,214 +425,140 @@ export default function App() {
   const [migrationStatus, setMigrationStatus] = useState<"idle" | "migrating" | "success" | "auto_handled">("idle");
   const [lastMigrationTime, setLastMigrationTime] = useState<string | null>(null);
 
-  const runAutoMigrationAndSync = async (userId: string) => {
+  /**
+   * Checks whether the schema is up to date.
+   *
+   * The app deliberately does not run DDL. Doing that from the browser needs a
+   * SQL-executing RPC in the database, which anyone holding the public anon key
+   * could then call to run arbitrary statements. Missing columns surface as a
+   * banner with the SQL to run instead, and writes keep working meanwhile via
+   * the tag-less fallbacks below.
+   */
+  const verifyDatabaseSchema = async (): Promise<boolean> => {
     setMigrationStatus("migrating");
-    console.log("🔄 [Auto-Migration] 42703 error detected. Running automatic schema migration...");
 
-    try {
-      // 1. Attempt RPC migration calls
-      await supabase.rpc("exec_sql", {
-        sql: "ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT; NOTIFY pgrst, 'reload schema';"
-      }).catch(() => null);
+    const { error } = await supabase.from("clients").select("tag").limit(1);
 
-      await supabase.rpc("add_tag_column").catch(() => null);
-
-      // 2. Test if 'tag' column is now accessible
-      const { error: testErr } = await supabase.from("clients").select("tag").limit(1);
-
-      if (!testErr) {
-        console.log("✅ [Auto-Migration] Database schema updated successfully!");
-        setMigrationStatus("success");
-        setLastMigrationTime(new Date().toLocaleTimeString('ka-GE', { hour: '2-digit', minute: '2-digit' }));
-        setShowDbMigrationWarning(false);
-        setDbErrorDetail(null);
-        showDemoToast(
-          "სქემა განახლდა!",
-          "ავტომატური მიგრაცია",
-          "მონაცემთა ბაზის სქემა წარმატებით განახლდა. 'tag' სვეტი აქტიურია!"
-        );
-        return true;
-      } else {
-        console.log("🛡️ [Auto-Compatibility] Operating in auto-handled compatibility mode.");
-        setMigrationStatus("auto_handled");
-        setLastMigrationTime(new Date().toLocaleTimeString('ka-GE', { hour: '2-digit', minute: '2-digit' }));
-        setShowDbMigrationWarning(false);
-        return false;
-      }
-    } catch (err) {
-      console.warn("Auto-migration process error:", err);
-      setMigrationStatus("auto_handled");
+    if (!error) {
+      setMigrationStatus("success");
+      setLastMigrationTime(new Date().toLocaleTimeString("ka-GE", { hour: "2-digit", minute: "2-digit" }));
       setShowDbMigrationWarning(false);
-      return false;
+      setDbErrorDetail(null);
+      return true;
     }
+
+    console.warn("Database schema is out of date:", error);
+    setMigrationStatus("auto_handled");
+    setLastMigrationTime(new Date().toLocaleTimeString("ka-GE", { hour: "2-digit", minute: "2-digit" }));
+    setDbErrorDetail(error.message || JSON.stringify(error));
+    setShowDbMigrationWarning(true);
+    return false;
   };
 
+  /**
+   * Which slice of localStorage this session may touch: one signed-in account,
+   * or the shared local (no account) workspace. Null until auth resolves, which
+   * is why state below starts empty and is hydrated once the scope is known —
+   * otherwise the previous user's data would flash up for the next one.
+   */
+  const [scope, setScope] = useState<StorageScope | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  /** Bumped to force a re-hydrate when the scope object itself is unchanged. */
+  const [hydrationNonce, setHydrationNonce] = useState(0);
+
+  const isLocalScope = scope?.kind === "local";
+  const canPersist = scope !== null && hydrated;
+
   // State lists
-  const [businesses, setBusinesses] = useState<Business[]>(() => {
-    const saved = localStorage.getItem("vxcrm_businesses");
-    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    const rawBus = saved ? JSON.parse(saved) : (isInitiallyLocal ? initialBusinesses : []);
-    return rawBus.map((b: any) => ({
-      ...b,
-      currency: b.currency || getBusinessCurrency(b.id)
-    }));
-  });
-  const [selectedBusiness, setSelectedBusiness] = useState<Business>(() => {
-    const saved = localStorage.getItem("vxcrm_selected_business");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        ...parsed,
-        currency: parsed.currency || getBusinessCurrency(parsed.id)
-      };
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [selectedBusiness, setSelectedBusiness] = useState<Business>(LOADING_BUSINESS);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [followups, setFollowups] = useState<Followup[]>([]);
+  const [documents, setDocuments] = useState<DocumentInvoice[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowAutomation[]>([]);
+  const [integrationConfig, setIntegrationConfig] = useState<IntegrationConfig>(DEFAULT_INTEGRATION_CONFIG);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [notificationLogs, setNotificationLogs] = useState<NotificationLog[]>([]);
+
+  // Resolve the storage scope from the auth state.
+  useEffect(() => {
+    if (session?.user?.id && !isLocalMode) {
+      const userId = session.user.id;
+      setScope(prev => (prev?.kind === "user" && prev.userId === userId ? prev : { kind: "user", userId }));
+    } else if (isLocalMode) {
+      setScope(prev => (prev?.kind === "local" ? prev : LOCAL_SCOPE));
     }
-    const savedBus = localStorage.getItem("vxcrm_businesses");
-    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    const parsedBus = savedBus ? JSON.parse(savedBus) : (isInitiallyLocal ? initialBusinesses : []);
-    const firstBus = parsedBus[0] || {
-      id: "bus_loading",
-      name: "იტვირთება...",
-      ownerName: "...",
-      role: "მფლობელი",
-      logoColor: "bg-slate-300"
-    };
-    return {
-      ...firstBus,
-      currency: firstBus.currency || getBusinessCurrency(firstBus.id)
-    };
-  });
-  const [clients, setClients] = useState<Client[]>(() => {
-    const saved = localStorage.getItem("vxcrm_clients");
-    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialClients : []);
-  });
-  const [services, setServices] = useState<Service[]>(() => {
-    const saved = localStorage.getItem("vxcrm_services");
-    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialServices : []);
-  });
-  const [staff, setStaff] = useState<Staff[]>(() => {
-    const saved = localStorage.getItem("vxcrm_staff");
-    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialStaff : []);
-  });
-  const [bookings, setBookings] = useState<Booking[]>(() => {
-    const saved = localStorage.getItem("vxcrm_bookings");
-    const isInitiallyLocal = !isSupabaseConfigured || localStorage.getItem("vxcrm_local_mode") === "true";
-    return saved ? JSON.parse(saved) : (isInitiallyLocal ? initialBookings : []);
-  });
-  const [followups, setFollowups] = useState<Followup[]>(() => {
-    const saved = localStorage.getItem("vxcrm_followups");
-    return saved ? JSON.parse(saved) : [];
-  });
+  }, [session, isLocalMode]);
+
+  // Load everything belonging to the resolved scope.
+  useEffect(() => {
+    if (!scope) return;
+    setHydrated(false);
+
+    const local = scope.kind === "local";
+
+    // Modules with no cloud table yet — cached per scope so accounts sharing a
+    // browser never see each other's invoices, automations or message history.
+    setDocuments(readScoped(scope, "documents", local ? DEMO_DOCUMENTS : []));
+    setWorkflows(readScoped(scope, "workflows", local ? DEMO_WORKFLOWS : []));
+    setIntegrationConfig(readScoped(scope, "integration_config", DEFAULT_INTEGRATION_CONFIG));
+    setNotificationSettings(loadNotificationSettings(scope));
+    setNotificationLogs(readScoped(scope, "notification_logs", []));
+
+    if (local) {
+      const startEmpty = localStorage.getItem("vxcrm_start_empty") === "true";
+      const withCurrency = (b: Business) => ({ ...b, currency: b.currency || getBusinessCurrency(scope, b.id) });
+
+      const loadedBusinesses = readScoped<Business[]>(scope, "businesses", startEmpty ? [LOCAL_BUSINESS] : initialBusinesses).map(withCurrency);
+      setBusinesses(loadedBusinesses);
+      setSelectedBusiness(withCurrency(readScoped<Business>(scope, "selected_business", loadedBusinesses[0] || LOCAL_BUSINESS)));
+      setClients(readScoped(scope, "clients", startEmpty ? [] : initialClients));
+      setServices(readScoped(scope, "services", startEmpty ? [] : initialServices));
+      setStaff(readScoped(scope, "staff", startEmpty ? [] : initialStaff));
+      setBookings(readScoped(scope, "bookings", startEmpty ? [] : initialBookings));
+      setFollowups(readScoped(scope, "followups", startEmpty ? [] : demoFollowups(loadedBusinesses[0]?.id || LOCAL_BUSINESS.id)));
+    } else {
+      // Cloud scope: the database is the record, so nothing here is written to
+      // disk. Anything left over from a previous scope is dropped immediately
+      // rather than shown until fetchUserData replaces it.
+      setBusinesses([]);
+      setSelectedBusiness(LOADING_BUSINESS);
+      setClients([]);
+      setServices([]);
+      setStaff([]);
+      setBookings([]);
+      setFollowups([]);
+    }
+
+    setHydrated(true);
+  }, [scope, hydrationNonce]);
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_followups", JSON.stringify(followups));
-  }, [followups]);
-
-  // CRM Documents
-  const [documents, setDocuments] = useState<DocumentInvoice[]>(() => {
-    const saved = localStorage.getItem("vxcrm_documents");
-    return saved ? JSON.parse(saved) : [
-      {
-        id: "doc_101",
-        businessId: "bus_1",
-        clientId: "cli_1",
-        clientName: "გიორგი ბერიძე",
-        docType: "invoice",
-        docNumber: "INV-2026-001",
-        title: "მარკეტინგული მომსახურების ინვოისი",
-        amount: 450,
-        date: "2026-07-10",
-        dueDate: "2026-07-20",
-        status: "გადახდილი",
-        notes: "გადახდილია საბანკო გადარიცხვით"
-      }
-    ];
-  });
+    if (canPersist) writeScoped(scope!, "documents", documents);
+  }, [documents, canPersist, scope]);
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_documents", JSON.stringify(documents));
-  }, [documents]);
-
-  // CRM Workflows
-  const [workflows, setWorkflows] = useState<WorkflowAutomation[]>(() => {
-    const saved = localStorage.getItem("vxcrm_workflows");
-    return saved ? JSON.parse(saved) : [
-      {
-        id: "wf_1",
-        businessId: "bus_1",
-        title: "ახალ ლიდზე SMS შეტყობინება",
-        triggerEvent: "new_lead",
-        triggerLabel: "ახალი ლიდის რეგისტრაცია",
-        actionType: "send_sms",
-        actionLabel: "მისალმების SMS-ის გაგზავნა",
-        enabled: true,
-        executionCount: 14
-      },
-      {
-        id: "wf_2",
-        businessId: "bus_1",
-        title: "ჯავშნის შეხსენება",
-        triggerEvent: "booking_created",
-        triggerLabel: "ახალი ჯავშნის შექმნა",
-        actionType: "send_email",
-        actionLabel: "დასტურის ელ-ფოსტის გაგზავნა",
-        enabled: true,
-        executionCount: 28
-      }
-    ];
-  });
+    if (canPersist) writeScoped(scope!, "workflows", workflows);
+  }, [workflows, canPersist, scope]);
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_workflows", JSON.stringify(workflows));
-  }, [workflows]);
-
-  // CRM Integration Config
-  const [integrationConfig, setIntegrationConfig] = useState<IntegrationConfig>(() => {
-    const saved = localStorage.getItem("vxcrm_integration_config");
-    return saved ? JSON.parse(saved) : {
-      facebookLeadAds: true,
-      whatsappBusiness: true,
-      gmailOutlook: true,
-      googleCalendar: true,
-      telegramBot: false,
-      stripePayPal: false,
-      facebookPageToken: "EAAB...mock_page_access_token",
-      whatsappApiKey: "wa_biz_key_88912",
-      gmailAddress: "office@company.ge",
-      googleCalendarEmail: "calendar@company.ge",
-      telegramBotToken: ""
-    };
-  });
+    if (canPersist) writeScoped(scope!, "integration_config", integrationConfig);
+  }, [integrationConfig, canPersist, scope]);
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_integration_config", JSON.stringify(integrationConfig));
-  }, [integrationConfig]);
-
-  // Notification logs & settings state
-  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() => {
-    const saved = localStorage.getItem("vxcrm_notification_settings");
-    if (saved) return JSON.parse(saved);
-    return {
-      smsEnabled: true,
-      emailEnabled: true,
-      smsTemplate: `გამარჯობა {client_name}, თქვენ წარმატებით ჩაეწერეთ სერვისზე: "{service_name}". თარიღი: {date}, დრო: {time}. ფასი: {price} ₾. სპეციალისტი: {staff_name}. მადლობა რომ ირჩევთ ჩვენს სერვისს!`,
-      emailTemplate: `გამარჯობა {client_name},\n\nთქვენ წარმატებით დარეგისტრირდით სერვისზე: "{service_name}".\n\nჯავშნის დეტალები:\n- თარიღი: {date}\n- დრო: {time}\n- სპეციალისტი: {staff_name}\n- მომსახურების ფასი: {price} ₾\n- დამატებითი კომენტარი: {notes}\n\nგელოდებით სიყვარულით!\n{business_name}`,
-    };
-  });
-  const [notificationLogs, setNotificationLogs] = useState<NotificationLog[]>(() => {
-    const saved = localStorage.getItem("vxcrm_notification_logs");
-    return saved ? JSON.parse(saved) : [];
-  });
+    if (canPersist) writeScoped(scope!, "notification_settings", notificationSettings);
+  }, [notificationSettings, canPersist, scope]);
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_notification_settings", JSON.stringify(notificationSettings));
-  }, [notificationSettings]);
+    if (canPersist) writeScoped(scope!, "notification_logs", notificationLogs);
+  }, [notificationLogs, canPersist, scope]);
 
   useEffect(() => {
-    localStorage.setItem("vxcrm_notification_logs", JSON.stringify(notificationLogs));
-  }, [notificationLogs]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "followups", followups);
+  }, [followups, canPersist, isLocalScope, scope]);
 
   // Modal State
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -541,42 +613,35 @@ export default function App() {
     }
   }, [session, isLocalMode]);
 
-  // Sync back to local storage only when in local mode
+  // Entity caches are written for local mode only — in cloud mode the database
+  // is the record and nothing sensitive is left behind on the device.
   useEffect(() => {
-    if (isLocalMode && businesses.length > 0) {
-      localStorage.setItem("vxcrm_businesses", JSON.stringify(businesses));
+    if (canPersist && isLocalScope && businesses.length > 0) {
+      writeScoped(scope!, "businesses", businesses);
     }
-  }, [businesses, isLocalMode]);
+  }, [businesses, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
-    if (isLocalMode && selectedBusiness.id !== "bus_loading") {
-      localStorage.setItem("vxcrm_selected_business", JSON.stringify(selectedBusiness));
+    if (canPersist && isLocalScope && selectedBusiness.id !== LOADING_BUSINESS.id) {
+      writeScoped(scope!, "selected_business", selectedBusiness);
     }
-  }, [selectedBusiness, isLocalMode]);
+  }, [selectedBusiness, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
-    if (isLocalMode) {
-      localStorage.setItem("vxcrm_clients", JSON.stringify(clients));
-    }
-  }, [clients, isLocalMode]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "clients", clients);
+  }, [clients, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
-    if (isLocalMode) {
-      localStorage.setItem("vxcrm_services", JSON.stringify(services));
-    }
-  }, [services, isLocalMode]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "services", services);
+  }, [services, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
-    if (isLocalMode) {
-      localStorage.setItem("vxcrm_staff", JSON.stringify(staff));
-    }
-  }, [staff, isLocalMode]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "staff", staff);
+  }, [staff, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
-    if (isLocalMode) {
-      localStorage.setItem("vxcrm_bookings", JSON.stringify(bookings));
-    }
-  }, [bookings, isLocalMode]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "bookings", bookings);
+  }, [bookings, canPersist, isLocalScope, scope]);
 
   // Load and fetch cloud database
   const fetchUserData = async (userId: string) => {
@@ -596,11 +661,13 @@ export default function App() {
       if (stfRes.error) throw stfRes.error;
       if (bokRes.error) throw bokRes.error;
 
-      let loadedBusinesses = busRes.data.map(mapBusinessFromDB);
-      let loadedClients = cliRes.data.map(mapClientFromDB);
-      let loadedServices = serRes.data.map(mapServiceFromDB);
-      let loadedStaff = stfRes.data.map(mapStaffFromDB);
-      let loadedBookings = bokRes.data.map(mapBookingFromDB);
+      const dataScope: StorageScope = { kind: "user", userId };
+
+      let loadedBusinesses = busRes.data.map((b: any) => mapBusinessFromDB(b, dataScope));
+      const loadedClients = cliRes.data.map(mapClientFromDB);
+      const loadedServices = serRes.data.map(mapServiceFromDB);
+      const loadedStaff = stfRes.data.map(mapStaffFromDB);
+      const loadedBookings = bokRes.data.map(mapBookingFromDB);
 
       // Safe fetch for followups to avoid breaking if table is not created yet
       let loadedFollowups: Followup[] = [];
@@ -613,23 +680,16 @@ export default function App() {
         console.warn("Followups fetch error:", folErr);
       }
 
-      // Verify if 'tag' column exists in 'clients' table and run auto-migration if 42703 is detected
-      const { error: tagCheckErr } = await supabase.from("clients").select("tag").limit(1);
-      if (tagCheckErr && isSchemaCacheOrTagError(tagCheckErr)) {
-        await runAutoMigrationAndSync(userId);
-      } else {
-        setMigrationStatus("success");
-        setLastMigrationTime(new Date().toLocaleTimeString('ka-GE', { hour: '2-digit', minute: '2-digit' }));
-        setShowDbMigrationWarning(false);
-        setDbErrorDetail(null);
-      }
+      await verifyDatabaseSchema();
 
-      // 1. Seed Business if empty in Supabase
+      // Create the account's first business if it has none. This is the only
+      // thing ever written on the user's behalf: clients, services, staff and
+      // bookings stay exactly as the user left them, including empty. (Earlier
+      // builds re-seeded demo records into any empty table, which silently
+      // resurrected deleted data on every reload.)
       if (loadedBusinesses.length === 0) {
         const metadata = session?.user?.user_metadata || {};
-        const savedBus = localStorage.getItem("vxcrm_businesses");
-        const localBusList: Business[] = savedBus ? JSON.parse(savedBus) : [];
-        const defaultBus: Business = localBusList[0] || {
+        const defaultBus: Business = {
           id: `bus_${Date.now()}`,
           name: metadata.business_name || "ჩემი ბიზნესი",
           ownerName: metadata.owner_name || "მფლობელი",
@@ -637,103 +697,11 @@ export default function App() {
           logoColor: "bg-indigo-600 text-white",
           category: "სალონი"
         };
-        await supabase.from("businesses").insert(mapBusinessToDB(defaultBus, userId));
+        const { error: busInsertErr } = await supabase
+          .from("businesses")
+          .insert(mapBusinessToDB(defaultBus, userId));
+        if (busInsertErr) throw busInsertErr;
         loadedBusinesses = [defaultBus];
-      }
-
-      // 2. Seed Clients if empty in Supabase only if user had custom local clients
-      if (loadedClients.length === 0) {
-        const savedCli = localStorage.getItem("vxcrm_clients");
-        const parsedSavedCli = savedCli ? JSON.parse(savedCli) : [];
-        const localCliList: Client[] = (parsedSavedCli && parsedSavedCli.length > 0) 
-          ? parsedSavedCli 
-          : [];
-
-        if (localCliList.length > 0) {
-          const cliToInsert = localCliList.map(c => mapClientToDB(c, userId));
-          let { error: cliSeedErr } = await supabase.from("clients").insert(cliToInsert);
-
-          // Retry without 'tag' field if schema cache / missing column error
-          if (cliSeedErr && isSchemaCacheOrTagError(cliSeedErr)) {
-            console.warn("Retrying seeding clients without 'tag' field due to schema error:", cliSeedErr);
-            const cliToInsertNoTag = cliToInsert.map(({ tag, ...rest }) => rest);
-            const retryRes = await supabase.from("clients").insert(cliToInsertNoTag);
-            cliSeedErr = retryRes.error;
-          }
-
-          if (!cliSeedErr) {
-            console.log(`✅ [Auto-Sync] ${localCliList.length} clients successfully uploaded to Supabase clients table!`);
-            loadedClients = localCliList;
-          } else {
-            console.warn("Error seeding clients to Supabase:", cliSeedErr);
-            loadedClients = localCliList; // keep local clients in UI state
-          }
-        }
-      }
-
-      // 3. Seed Services if empty in Supabase only if user had custom local services
-      if (loadedServices.length === 0) {
-        const savedSer = localStorage.getItem("vxcrm_services");
-        const parsedSavedSer = savedSer ? JSON.parse(savedSer) : [];
-        const localSerList: Service[] = (parsedSavedSer && parsedSavedSer.length > 0) 
-          ? parsedSavedSer 
-          : [];
-
-        if (localSerList.length > 0) {
-          const serToInsert = localSerList.map(s => mapServiceToDB(s, userId));
-          const { error: serSeedErr } = await supabase.from("services").insert(serToInsert);
-          if (!serSeedErr) {
-            console.log(`✅ [Auto-Sync] ${localSerList.length} services seeded to Supabase.`);
-          }
-          loadedServices = localSerList;
-        }
-      }
-
-      // 4. Seed Staff if empty in Supabase only if user had custom local staff
-      if (loadedStaff.length === 0) {
-        const savedStf = localStorage.getItem("vxcrm_staff");
-        const parsedSavedStf = savedStf ? JSON.parse(savedStf) : [];
-        const localStfList: Staff[] = (parsedSavedStf && parsedSavedStf.length > 0) 
-          ? parsedSavedStf 
-          : [];
-
-        if (localStfList.length > 0) {
-          const stfToInsert = localStfList.map(s => mapStaffToDB(s, userId));
-          const { error: stfSeedErr } = await supabase.from("staff").insert(stfToInsert);
-          if (!stfSeedErr) {
-            console.log(`✅ [Auto-Sync] ${localStfList.length} staff members seeded to Supabase.`);
-          }
-          loadedStaff = localStfList;
-        }
-      }
-
-      // 5. Seed Bookings if empty in Supabase only if user had custom local bookings
-      if (loadedBookings.length === 0) {
-        const savedBok = localStorage.getItem("vxcrm_bookings");
-        const parsedSavedBok = savedBok ? JSON.parse(savedBok) : [];
-        const localBokList: Booking[] = (parsedSavedBok && parsedSavedBok.length > 0) 
-          ? parsedSavedBok 
-          : [];
-
-        if (localBokList.length > 0) {
-          const bokToInsert = localBokList.map(b => mapBookingToDB(b, userId));
-          const { error: bokSeedErr } = await supabase.from("bookings").insert(bokToInsert);
-          if (!bokSeedErr) {
-            console.log(`✅ [Auto-Sync] ${localBokList.length} bookings seeded to Supabase.`);
-          }
-          loadedBookings = localBokList;
-        }
-      }
-
-      // 6. Seed Followups if empty in Supabase
-      if (loadedFollowups.length === 0) {
-        const savedFol = localStorage.getItem("vxcrm_followups");
-        const localFolList: Followup[] = savedFol ? JSON.parse(savedFol) : [];
-        if (localFolList.length > 0) {
-          const folToInsert = localFolList.map(f => mapFollowupToDB(f, userId));
-          await supabase.from("followups").insert(folToInsert);
-          loadedFollowups = localFolList;
-        }
       }
 
       setBusinesses(loadedBusinesses);
@@ -751,142 +719,116 @@ export default function App() {
     }
   };
 
-  const handleForceSyncToSupabase = async () => {
+  /**
+   * Uploads the local-mode workspace into the signed-in account, on request.
+   *
+   * This is the deliberate replacement for the old automatic seeding: nothing
+   * moves to the cloud unless the user asks for it. Rows are upserted by id, so
+   * running it twice is harmless.
+   */
+  const handleUploadLocalData = async () => {
     if (!session?.user?.id) return;
+    const userId = session.user.id;
+
+    const localClients = readScoped<Client[]>(LOCAL_SCOPE, "clients", []);
+    const localServices = readScoped<Service[]>(LOCAL_SCOPE, "services", []);
+    const localStaff = readScoped<Staff[]>(LOCAL_SCOPE, "staff", []);
+    const localBookings = readScoped<Booking[]>(LOCAL_SCOPE, "bookings", []);
+    const localFollowups = readScoped<Followup[]>(LOCAL_SCOPE, "followups", []);
+
+    const totalRows =
+      localClients.length + localServices.length + localStaff.length +
+      localBookings.length + localFollowups.length;
+
+    if (totalRows === 0) {
+      showDemoToast("მონაცემები ცარიელია", "Supabase", "ლოკალურ რეჟიმში ასატვირთი მონაცემები ვერ მოიძებნა.");
+      return;
+    }
+
     showDemoToast("სინქრონიზაცია...", "Supabase Sync", "მიმდინარეობს ლოკალური მონაცემების ატვირთვა Supabase-ში...");
 
-    const userId = session.user.id;
-    const savedCli = localStorage.getItem("vxcrm_clients");
-    const parsedSavedCli = savedCli ? JSON.parse(savedCli) : [];
-    const localCliList: Client[] = (parsedSavedCli && parsedSavedCli.length > 0) 
-      ? parsedSavedCli 
-      : (clients.length > 0 ? clients : initialClients);
+    const failures: string[] = [];
 
-    if (localCliList.length > 0) {
-      const cliToInsert = localCliList.map(c => mapClientToDB(c, userId));
-      let { error } = await supabase.from("clients").insert(cliToInsert);
+    const upsert = async (table: string, rows: any[], label: string) => {
+      if (rows.length === 0) return;
+      const { error } = await supabase.from(table).upsert(rows, { onConflict: "id" });
+      if (error) failures.push(`${label}: ${error.message || JSON.stringify(error)}`);
+    };
+
+    // Clients first — the tag column may be missing on older projects.
+    if (localClients.length > 0) {
+      const rows = localClients.map(c => mapClientToDB(c, userId, selectedBusiness.id));
+      let { error } = await supabase.from("clients").upsert(rows, { onConflict: "id" });
 
       if (error && isSchemaCacheOrTagError(error)) {
-        console.warn("Retrying force sync without 'tag' field:", error);
-        const cliToInsertNoTag = cliToInsert.map(({ tag, ...rest }) => rest);
-        const retryRes = await supabase.from("clients").insert(cliToInsertNoTag);
-        error = retryRes.error;
+        console.warn("Retrying client upload without the 'tag' column:", error);
+        const rowsWithoutTag = rows.map(({ tag, ...rest }) => rest);
+        error = (await supabase.from("clients").upsert(rowsWithoutTag, { onConflict: "id" })).error;
       }
+      if (error) failures.push(`კლიენტები: ${error.message || JSON.stringify(error)}`);
+    }
 
-      if (!error) {
-        console.log(`✅ [Manual Sync] ${localCliList.length} clients uploaded to Supabase clients table!`);
-        showDemoToast(
-          "სინქრონიზაცია დასრულდა!",
-          "კლიენტების ატვირთვა",
-          `წარმატებით აიტვირთა ${localCliList.length} კლიენტი Supabase-ის clients ცხრილში!`
-        );
-        await fetchUserData(userId);
-      } else {
-        console.warn("Manual sync clients error:", error);
-        showDemoToast(
-          "სინქრონიზაციის შეცდომა",
-          "Supabase",
-          `კლიენტების ატვირთვა ვერ მოხერხდა: ${error.message || JSON.stringify(error)}`
-        );
-      }
+    await upsert("services", localServices.map(s => mapServiceToDB(s, userId)), "სერვისები");
+    await upsert("staff", localStaff.map(s => mapStaffToDB(s, userId)), "თანამშრომლები");
+    await upsert("bookings", localBookings.map(b => mapBookingToDB(b, userId)), "ჯავშნები");
+    await upsert("followups", localFollowups.map(f => mapFollowupToDB(f, userId)), "შეხსენებები");
+
+    await fetchUserData(userId);
+
+    if (failures.length === 0) {
+      showDemoToast(
+        "სინქრონიზაცია დასრულდა!",
+        "ლოკალური მონაცემების ატვირთვა",
+        `წარმატებით აიტვირთა ${totalRows} ჩანაწერი თქვენს ანგარიშში.`
+      );
     } else {
-      showDemoToast("მონაცემები ცარიელია", "Supabase", "ასატვირთი კლიენტები ვერ მოიძებნა.");
+      showDemoToast(
+        "სინქრონიზაცია ნაწილობრივ შესრულდა",
+        "Supabase",
+        `ზოგიერთი ჩანაწერი ვერ აიტვირთა — ${failures.join("; ")}`
+      );
     }
   };
 
   const handleVerifyMigration = async () => {
     if (!session?.user?.id) return;
-    try {
-      // Query clients table requesting the tag column specifically to verify if it's available
-      const { error } = await supabase.from("clients").select("tag").limit(1);
-      if (error) throw error;
-      
-      // If it succeeded, refresh the user data
+    const ok = await verifyDatabaseSchema();
+    if (ok) {
       await fetchUserData(session.user.id);
-      setShowDbMigrationWarning(false);
-      setDbErrorDetail(null);
       showDemoToast("ბაზა განახლდა!", "მიგრაცია წარმატებულია", "კავშირი აღდგენილია და ახალი სვეტი აქტიურია.");
-    } catch (err: any) {
-      const errMsg = err?.message || JSON.stringify(err);
-      setDbErrorDetail(errMsg);
-      showDemoToast("კავშირი ვერ დამყარდა", "მიგრაცია", `ბაზა კვლავ აბრუნებს შეცდომას: ${errMsg}`);
+    } else {
+      showDemoToast(
+        "კავშირი ვერ დამყარდა",
+        "მიგრაცია",
+        `ბაზა კვლავ აბრუნებს შეცდომას. გაუშვით მითითებული SQL კოდი Supabase SQL Editor-ში.`
+      );
     }
   };
 
-  const handleContinueLocal = (startEmpty: boolean) => {
-    setIsLocalMode(true);
+  /**
+   * Switches to the local workspace. State itself is loaded by the hydration
+   * effect, so this only records the choice.
+   *
+   * `isExplicitChoice` marks the user actively picking a starting point on the
+   * auth screen. Resuming an existing local session must never reach the reset
+   * branch, or every page load would wipe the workspace.
+   */
+  const handleContinueLocal = (startEmpty: boolean, isExplicitChoice: boolean = false) => {
     localStorage.setItem("vxcrm_local_mode", "true");
-    localStorage.setItem("vxcrm_start_empty", startEmpty ? "true" : "false");
 
-    if (startEmpty) {
-      setBusinesses([]);
-      const emptyBus = {
-        id: "bus_local",
-        name: "ლოკალური ბიზნესი",
-        ownerName: "სტუმარი",
-        role: "მფლობელი",
-        logoColor: "bg-indigo-600 text-white"
-      };
-      setSelectedBusiness(emptyBus);
-      setBusinesses([emptyBus]);
-      setClients([]);
-      setServices([]);
-      setStaff([]);
-      setBookings([]);
-      setFollowups([]);
-    } else {
-      // Load standard Georgian mockup data
-      const savedBus = localStorage.getItem("vxcrm_businesses");
-      const savedSel = localStorage.getItem("vxcrm_selected_business");
-      const savedCli = localStorage.getItem("vxcrm_clients");
-      const savedSer = localStorage.getItem("vxcrm_services");
-      const savedStf = localStorage.getItem("vxcrm_staff");
-      const savedBok = localStorage.getItem("vxcrm_bookings");
-      const savedFol = localStorage.getItem("vxcrm_followups");
+    if (isExplicitChoice) {
+      localStorage.setItem("vxcrm_start_empty", startEmpty ? "true" : "false");
 
-      setBusinesses(savedBus ? JSON.parse(savedBus) : initialBusinesses);
-      setSelectedBusiness(savedSel ? JSON.parse(savedSel) : (savedBus ? JSON.parse(savedBus)[0] : initialBusinesses[0]));
-      setClients(savedCli ? JSON.parse(savedCli) : initialClients);
-      setServices(savedSer ? JSON.parse(savedSer) : initialServices);
-      setStaff(savedStf ? JSON.parse(savedStf) : initialStaff);
-      setBookings(savedBok ? JSON.parse(savedBok) : initialBookings);
-
-      if (savedFol) {
-        setFollowups(JSON.parse(savedFol));
-      } else {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = tomorrow.toISOString().split("T")[0];
-        
-        const initialFollowups: Followup[] = [
-          {
-            id: "initial_f1",
-            businessId: savedBus ? JSON.parse(savedBus)[0]?.id || "bus_local" : initialBusinesses[0]?.id || "bus_local",
-            clientName: "მარიამ ბერიძე",
-            clientPhone: "599123456",
-            date: tomorrowStr,
-            time: "11:30",
-            type: "call",
-            topic: "ხვალ გასაწევ მომსახურებაზე დადასტურება",
-            status: "მოლოდინში",
-            notes: "სთხოვა რომ ზუსტად 11:30-ზე დავურეკოთ"
-          },
-          {
-            id: "initial_f2",
-            businessId: savedBus ? JSON.parse(savedBus)[0]?.id || "bus_local" : initialBusinesses[0]?.id || "bus_local",
-            clientName: "ლევან კალანდაძე",
-            clientPhone: "555987654",
-            date: tomorrowStr,
-            time: "15:00",
-            type: "message",
-            topic: "შემდეგი ვიზიტის შეთავაზება",
-            status: "მოლოდინში",
-            notes: "WhatsApp-ით გაგზავნა"
-          }
-        ];
-        setFollowups(initialFollowups);
+      if (startEmpty) {
+        clearScope(LOCAL_SCOPE);
+        writeScoped(LOCAL_SCOPE, "businesses", [LOCAL_BUSINESS]);
+        writeScoped(LOCAL_SCOPE, "selected_business", LOCAL_BUSINESS);
       }
     }
+
+    setIsLocalMode(true);
+    setScope(LOCAL_SCOPE);
+    setHydrationNonce(n => n + 1);
   };
 
   const [demoToast, setDemoToast] = useState<{ title: string; recipient: string; message: string } | null>(null);
@@ -928,6 +870,43 @@ export default function App() {
     return msg;
   };
 
+  /**
+   * Hands a message to the send-notification Edge Function, which owns the
+   * Twilio/EmailJS credentials. Nothing sensitive is held in the browser, and
+   * without a signed-in session (or with no provider secrets set) delivery
+   * degrades to demo mode instead of failing.
+   */
+  const deliverNotification = async (
+    channel: "sms" | "email",
+    to: string,
+    body: string,
+    templateParams?: Record<string, string>
+  ): Promise<DeliveryResult> => {
+    if (!isSupabaseConfigured || isLocalMode || !session) {
+      return { status: "demo" };
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke("send-notification", {
+        body: { channel, to, body, templateParams }
+      });
+
+      if (error) {
+        console.error(`${channel} delivery failed:`, error);
+        return { status: "error", message: error.message || "Edge Function-თან კავშირი ვერ დამყარდა" };
+      }
+
+      const result = data as DeliveryResult | null;
+      if (!result || !result.status) {
+        return { status: "error", message: "შეტყობინების სერვისმა დააბრუნა მოულოდნელი პასუხი" };
+      }
+      return result;
+    } catch (err: any) {
+      console.error(`${channel} delivery failed:`, err);
+      return { status: "error", message: err?.message || "უცნობი შეცდომა გაგზავნისას" };
+    }
+  };
+
   const sendBookingNotifications = async (booking: Booking, isNew: boolean = true, forceSendSms?: boolean) => {
     const client = clients.find(c => c.id === booking.clientId);
     const service = services.find(s => s.id === booking.serviceId);
@@ -947,89 +926,28 @@ export default function App() {
         .replace(/{business_name}/g, selectedBusiness?.name || "CRM ბიზნესი");
     };
 
-    const sendTwilioSMS = async (to: string, body: string, settings: NotificationSettings) => {
-      if (!settings.twilioSid || !settings.twilioToken || !settings.twilioFrom) {
-        throw new Error("Twilio-ს გასაღებები არ არის შევსებული");
-      }
-      
-      let formattedTo = to.replace(/[\s\-\(\)]/g, "");
-      if (!formattedTo.startsWith("+")) {
-        if (formattedTo.startsWith("995")) {
-          formattedTo = "+" + formattedTo;
-        } else if (formattedTo.length === 9) {
-          formattedTo = "+995" + formattedTo;
-        } else {
-          formattedTo = "+" + formattedTo;
-        }
-      }
-
-      const response = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${settings.twilioSid}/Messages.json`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": "Basic " + btoa(`${settings.twilioSid}:${settings.twilioToken}`),
-            "Content-Type": "application/x-www-form-urlencoded"
-          },
-          body: new URLSearchParams({
-            To: formattedTo,
-            From: settings.twilioFrom,
-            Body: body
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.message || `Twilio HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
+    const templateParams = {
+      to_name: client.name || "",
+      service_name: service?.name || "",
+      date: booking.date || "",
+      time: booking.time || "",
+      price: String(booking.price || ""),
+      staff_name: staffMember?.name || "",
+      notes: booking.notes || "არ არის",
+      business_name: selectedBusiness?.name || "ჩვენი ბიზნესი"
     };
 
-    const sendEmailJS = async (settings: NotificationSettings, emailText: string) => {
-      if (!settings.emailjsServiceId || !settings.emailjsTemplateId || !settings.emailjsUserId) {
-        throw new Error("EmailJS-ის გასაღებები არ არის შევსებული");
-      }
-
-      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          service_id: settings.emailjsServiceId,
-          template_id: settings.emailjsTemplateId,
-          user_id: settings.emailjsUserId,
-          accessToken: settings.emailjsAccessToken || undefined,
-          template_params: {
-            to_email: client.email || "",
-            to_name: client.name || "",
-            message: emailText,
-            service_name: service?.name || "",
-            date: booking.date || "",
-            time: booking.time || "",
-            price: String(booking.price || ""),
-            staff_name: staffMember?.name || "",
-            notes: booking.notes || "არ არის",
-            business_name: selectedBusiness?.name || "ჩვენი ბიზნესი"
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `EmailJS HTTP error! status: ${response.status}`);
-      }
-    };
+    const logStamp = () =>
+      new Date().toLocaleString("ka-GE", { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
 
     // PROCESS SMS
     const isSmsEnabled = forceSendSms !== undefined ? forceSendSms : notificationSettings.smsEnabled;
     if (isSmsEnabled && client.phone) {
       const smsBody = formatMessage(notificationSettings.smsTemplate);
-      const isTwilioConfigured = !!(notificationSettings.twilioSid && notificationSettings.twilioToken && notificationSettings.twilioFrom);
-      
+      const result = await deliverNotification("sms", client.phone, smsBody);
+
       const newLog: NotificationLog = {
-        id: `log_sms_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        id: `log_sms_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         businessId: selectedBusiness.id,
         bookingId: booking.id,
         clientName: client.name,
@@ -1037,20 +955,13 @@ export default function App() {
         clientEmail: client.email || "",
         serviceName: service?.name || "მომსახურება",
         type: "sms",
-        status: isTwilioConfigured ? "გაგზავნილი" : "დემო_გაგზავნილი",
-        sentAt: new Date().toLocaleString("ka-GE", { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }),
+        status: DELIVERY_STATUS_LABEL[result.status],
+        errorMessage: result.status === "error" ? enhanceErrorMessage(result.message || "უცნობი შეცდომა Twilio-სთან") : undefined,
+        sentAt: logStamp(),
         message: smsBody
       };
 
-      if (isTwilioConfigured) {
-        try {
-          await sendTwilioSMS(client.phone, smsBody, notificationSettings);
-        } catch (err: any) {
-          console.error("SMS Sending Error:", err);
-          newLog.status = "შეცდომა";
-          newLog.errorMessage = enhanceErrorMessage(err.message || "უცნობი შეცდომა Twilio-სთან");
-        }
-      } else {
+      if (result.status === "demo") {
         showDemoToast("SMS შეტყობინება (სადემონსტრაციო)", client.phone, smsBody);
       }
 
@@ -1060,10 +971,10 @@ export default function App() {
     // PROCESS EMAIL
     if (notificationSettings.emailEnabled && client.email) {
       const emailBody = formatMessage(notificationSettings.emailTemplate);
-      const isEmailJSConfigured = !!(notificationSettings.emailjsServiceId && notificationSettings.emailjsTemplateId && notificationSettings.emailjsUserId);
+      const result = await deliverNotification("email", client.email, emailBody, templateParams);
 
       const newLog: NotificationLog = {
-        id: `log_email_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        id: `log_email_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         businessId: selectedBusiness.id,
         bookingId: booking.id,
         clientName: client.name,
@@ -1071,20 +982,13 @@ export default function App() {
         clientEmail: client.email,
         serviceName: service?.name || "მომსახურება",
         type: "email",
-        status: isEmailJSConfigured ? "გაგზავნილი" : "დემო_გაგზავნილი",
-        sentAt: new Date().toLocaleString("ka-GE", { hour: "2-digit", minute: "2-digit", second: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }),
+        status: DELIVERY_STATUS_LABEL[result.status],
+        errorMessage: result.status === "error" ? (result.message || "უცნობი შეცდომა EmailJS-თან") : undefined,
+        sentAt: logStamp(),
         message: emailBody
       };
 
-      if (isEmailJSConfigured) {
-        try {
-          await sendEmailJS(notificationSettings, emailBody);
-        } catch (err: any) {
-          console.error("Email Sending Error:", err);
-          newLog.status = "შეცდომა";
-          newLog.errorMessage = err.message || "უცნობი შეცდომა EmailJS-თან";
-        }
-      } else {
+      if (result.status === "demo") {
         showDemoToast("Email შეტყობინება (სადემონსტრაციო)", client.email, emailBody);
       }
 
@@ -1096,94 +1000,37 @@ export default function App() {
     const log = notificationLogs.find(l => l.id === logId);
     if (!log) return false;
 
-    const isSMS = log.type === "sms";
-    const isTwilioConfigured = !!(notificationSettings.twilioSid && notificationSettings.twilioToken && notificationSettings.twilioFrom);
-    const isEmailJSConfigured = !!(notificationSettings.emailjsServiceId && notificationSettings.emailjsTemplateId && notificationSettings.emailjsUserId);
-
-    if (isSMS) {
-      if (!isTwilioConfigured) {
-        showDemoToast("შეცდომა პარამეტრებში", "Twilio შეტყობინება", "გთხოვთ ჯერ შეავსოთ Twilio-ს პარამეტრები პარამეტრების მენიუდან.");
-        return false;
+    const result = await deliverNotification(
+      log.type,
+      log.type === "sms" ? log.clientPhone : log.clientEmail,
+      log.message,
+      {
+        to_name: log.clientName,
+        service_name: log.serviceName,
+        business_name: selectedBusiness?.name || "ჩვენი ბიზნესი"
       }
-      try {
-        let formattedTo = log.clientPhone.replace(/[\s\-\(\)]/g, "");
-        if (!formattedTo.startsWith("+")) {
-          if (formattedTo.startsWith("995")) {
-            formattedTo = "+" + formattedTo;
-          } else if (formattedTo.length === 9) {
-            formattedTo = "+995" + formattedTo;
-          } else {
-            formattedTo = "+" + formattedTo;
-          }
-        }
+    );
 
-        const response = await fetch(
-          `https://api.twilio.com/2010-04-01/Accounts/${notificationSettings.twilioSid}/Messages.json`,
-          {
-            method: "POST",
-            headers: {
-              "Authorization": "Basic " + btoa(`${notificationSettings.twilioSid}:${notificationSettings.twilioToken}`),
-              "Content-Type": "application/x-www-form-urlencoded"
-            },
-            body: new URLSearchParams({
-              To: formattedTo,
-              From: notificationSettings.twilioFrom!,
-              Body: log.message
-            })
-          }
-        );
-
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.message || `Twilio HTTP error! status: ${response.status}`);
-        }
-
-        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "გაგზავნილი", errorMessage: undefined } : l));
-        return true;
-      } catch (err: any) {
-        console.error(err);
-        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "შეცდომა", errorMessage: enhanceErrorMessage(err.message || "შეცდომა") } : l));
-        return false;
-      }
-    } else {
-      if (!isEmailJSConfigured) {
-        showDemoToast("შეცდომა პარამეტრებში", "EmailJS შეტყობინება", "გთხოვთ ჯერ შეავსოთ EmailJS-ის პარამეტრები პარამეტრების მენიუდან.");
-        return false;
-      }
-      try {
-        const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            service_id: notificationSettings.emailjsServiceId,
-            template_id: notificationSettings.emailjsTemplateId,
-            user_id: notificationSettings.emailjsUserId,
-            accessToken: notificationSettings.emailjsAccessToken || undefined,
-            template_params: {
-              to_email: log.clientEmail,
-              to_name: log.clientName,
-              message: log.message,
-              service_name: log.serviceName,
-              business_name: selectedBusiness?.name || "ჩვენი ბიზნესი"
-            }
-          })
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `EmailJS HTTP error! status: ${response.status}`);
-        }
-
-        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "გაგზავნილი", errorMessage: undefined } : l));
-        return true;
-      } catch (err: any) {
-        console.error(err);
-        setNotificationLogs(prev => prev.map(l => l.id === logId ? { ...l, status: "შეცდომა", errorMessage: err.message || "შეცდომა" } : l));
-        return false;
-      }
+    if (result.status === "demo") {
+      showDemoToast(
+        "შეტყობინების სერვისი არ არის კონფიგურირებული",
+        log.type === "sms" ? "Twilio შეტყობინება" : "EmailJS შეტყობინება",
+        "რეალური გაგზავნისთვის დააყენეთ პროვაიდერის გასაღებები Supabase-ის სერვერულ პარამეტრებში (იხ. supabase/README.md)."
+      );
+      return false;
     }
+
+    const failed = result.status === "error";
+    setNotificationLogs(prev => prev.map(l => l.id === logId
+      ? {
+          ...l,
+          status: DELIVERY_STATUS_LABEL[result.status],
+          errorMessage: failed ? enhanceErrorMessage(result.message || "შეცდომა") : undefined
+        }
+      : l
+    ));
+
+    return !failed;
   };
 
   // Compute enriched clients dynamically
@@ -1229,16 +1076,11 @@ export default function App() {
 
   const handleUpdateCurrency = (currency: CurrencyCode) => {
     setSelectedBusiness(prev => {
-      const updated = { ...prev, currency };
-      try {
-        const stored = localStorage.getItem("vxcrm_business_currencies") || "{}";
-        const parsed = JSON.parse(stored);
-        parsed[prev.id] = currency;
-        localStorage.setItem("vxcrm_business_currencies", JSON.stringify(parsed));
-      } catch (e) {
-        console.warn("Error saving business currency in localStorage:", e);
+      if (scope) {
+        const currencies = readScoped<Record<string, CurrencyCode>>(scope, "business_currencies", {});
+        writeScoped(scope, "business_currencies", { ...currencies, [prev.id]: currency });
       }
-      return updated;
+      return { ...prev, currency };
     });
 
     setBusinesses(prev => prev.map(b => b.id === selectedBusiness.id ? { ...b, currency } : b));
@@ -1450,7 +1292,7 @@ export default function App() {
         const errMsg = err?.message || JSON.stringify(err);
         setDbErrorDetail(errMsg);
         if (isSchemaCacheOrTagError(err)) {
-          runAutoMigrationAndSync(session.user.id);
+          verifyDatabaseSchema();
         } else {
           showDemoToast("შეცდომა ბაზაში შენახვისას", "კლიენტის დამატება", `მონაცემის შენახვა ვერ მოხერხდა: ${errMsg}`);
         }
@@ -1488,7 +1330,7 @@ export default function App() {
         const errMsg = err?.message || JSON.stringify(err);
         setDbErrorDetail(errMsg);
         if (isSchemaCacheOrTagError(err)) {
-          runAutoMigrationAndSync(session.user.id);
+          verifyDatabaseSchema();
         } else {
           showDemoToast("შეცდომა ბაზაში განახლებისას", "კლიენტის რედაქტირება", `ცვლილებების შენახვა ვერ მოხერხდა: ${errMsg}`);
         }
@@ -1675,14 +1517,15 @@ export default function App() {
         console.warn("Supabase signOut error:", err);
       }
     }
+
+    // Wipe everything this scope cached — invoices, follow-ups, message history,
+    // integration tokens — so the next person to use this browser sees nothing.
+    if (scope) clearScope(scope);
+    localStorage.removeItem("vxcrm_local_mode");
+
     setSession(null);
     setIsLocalMode(true);
     setHasChosenLocal(false);
-    if (isLocalMode) {
-      localStorage.clear();
-    } else {
-      localStorage.removeItem("vxcrm_local_mode");
-    }
     window.location.reload();
   };
 
@@ -1733,8 +1576,7 @@ export default function App() {
         }}
         onContinueLocal={(startEmpty) => {
           setHasChosenLocal(true);
-          localStorage.setItem("vxcrm_local_mode", "true");
-          handleContinueLocal(startEmpty);
+          handleContinueLocal(startEmpty, true);
         }}
       />
     );
@@ -1751,130 +1593,7 @@ export default function App() {
         supabaseFetchError.message.toLowerCase().includes("permission")
       ));
 
-    const sqlCode = `-- 1. Create Tables with User Isolation
-CREATE TABLE IF NOT EXISTS businesses (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  owner_name TEXT NOT NULL,
-  role TEXT DEFAULT 'მფლობელი',
-  phone TEXT,
-  email TEXT,
-  address TEXT,
-  category TEXT,
-  logo_color TEXT DEFAULT 'bg-indigo-600 text-white'
-);
-
-CREATE TABLE IF NOT EXISTS clients (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  business_id TEXT,
-  name TEXT NOT NULL,
-  phone TEXT NOT NULL,
-  email TEXT,
-  company TEXT,
-  source TEXT,
-  lead_value NUMERIC,
-  notes TEXT,
-  tag TEXT
-);
-
-CREATE TABLE IF NOT EXISTS services (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  price NUMERIC NOT NULL,
-  duration INT NOT NULL,
-  category TEXT NOT NULL,
-  color TEXT DEFAULT 'blue'
-);
-
-CREATE TABLE IF NOT EXISTS staff (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  role TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  avatar_color TEXT DEFAULT 'bg-indigo-600 text-white',
-  rating NUMERIC DEFAULT 5.0,
-  status TEXT DEFAULT 'აქტიური'
-);
-
-CREATE TABLE IF NOT EXISTS bookings (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  business_id TEXT,
-  client_id TEXT,
-  service_id TEXT,
-  staff_id TEXT,
-  date TEXT NOT NULL,
-  time TEXT NOT NULL,
-  price NUMERIC NOT NULL,
-  status TEXT DEFAULT 'მოლოდინში',
-  notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS followups (
-  id TEXT PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  business_id TEXT,
-  client_id TEXT,
-  client_name TEXT NOT NULL,
-  client_phone TEXT NOT NULL,
-  date TEXT NOT NULL,
-  time TEXT NOT NULL,
-  type TEXT NOT NULL,
-  topic TEXT NOT NULL,
-  status TEXT DEFAULT 'მოლოდინში',
-  notes TEXT
-);
-
--- 2. Add missing columns if tables already existed without them
-ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id TEXT;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS company TEXT;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_value NUMERIC;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
-ALTER TABLE services ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE staff ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE followups ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-
--- 3. Grant table permissions
-GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon;
-
--- 4. Enable Row Level Security (RLS)
-ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
-ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE followups ENABLE ROW LEVEL SECURITY;
-
--- 4. Create RLS Policies
-DROP POLICY IF EXISTS "Users can manage their own businesses" ON businesses;
-CREATE POLICY "Users can manage their own businesses" ON businesses FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can manage their own clients" ON clients;
-CREATE POLICY "Users can manage their own clients" ON clients FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can manage their own services" ON services;
-CREATE POLICY "Users can manage their own services" ON services FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can manage their own staff" ON staff;
-CREATE POLICY "Users can manage their own staff" ON staff FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can manage their own bookings" ON bookings;
-CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can manage their own followups" ON followups;
-CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);`;
+    const sqlCode = SETUP_SQL;
 
     const handleCopySql = () => {
       navigator.clipboard.writeText(sqlCode);
@@ -2035,6 +1754,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
             services={services}
             staff={staff}
             selectedBusinessId={selectedBusiness.id}
+            storageScope={scope}
           />
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -2082,37 +1802,34 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
               {migrationStatus === "auto_handled" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold">
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>DB ავტო-თავსებადია</span>
+                  <span>DB სქემა განახლებას საჭიროებს</span>
                 </span>
               )}
               {migrationStatus === "migrating" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-semibold animate-pulse">
                   <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-spin" />
-                  <span>მიმდინარეობს DB სქემის ავტო-მიგრაცია...</span>
+                  <span>მიმდინარეობს DB სქემის შემოწმება...</span>
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => session?.user?.id && runAutoMigrationAndSync(session.user.id)}
+                onClick={() => verifyDatabaseSchema()}
                 className="text-indigo-700 hover:text-indigo-800 dark:text-indigo-300 font-bold bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer text-[11px]"
-                title="ბაზის სქემის ავტომატური შემოწმება და მიგრაცია"
+                title="ბაზის სქემის შემოწმება"
               >
                 ⚡ DB სქემის შემოწმება
               </button>
               <button
-                onClick={handleForceSyncToSupabase}
+                onClick={handleUploadLocalData}
                 className="text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer text-[11px]"
-                title="ლოკალური კლიენტების მონაცემების ატვირთვა Supabase-ში"
+                title="ლოკალური რეჟიმის მონაცემების ატვირთვა Supabase-ში"
               >
-                🔄 კლიენტების ატვირთვა
+                🔄 ლოკალური მონაცემების ატვირთვა
               </button>
-              <button 
-                onClick={() => {
-                  supabase.auth.signOut();
-                  window.location.reload();
-                }}
+              <button
+                onClick={handleLogout}
                 className="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-bold text-[11px]"
               >
                 გამოსვლა
@@ -2167,7 +1884,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
                 </button>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText("ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;\nNOTIFY pgrst, 'reload schema';");
+                    navigator.clipboard.writeText(TAG_MIGRATION_SQL);
                     setMigrationCopied(true);
                     setTimeout(() => setMigrationCopied(false), 2000);
                   }}
@@ -2185,10 +1902,9 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
                 </button>
               </div>
             </div>
-            <div className="mt-3 font-mono bg-slate-900 text-slate-300 p-2.5 rounded-lg border border-slate-800 text-[11px] overflow-x-auto max-w-3xl whitespace-pre-wrap">
-              ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
-              NOTIFY pgrst, 'reload schema';
-            </div>
+            <pre className="mt-3 font-mono bg-slate-900 text-slate-300 p-2.5 rounded-lg border border-slate-800 text-[11px] overflow-x-auto max-w-3xl whitespace-pre-wrap">
+              {TAG_MIGRATION_SQL}
+            </pre>
           </div>
         )}
 
@@ -2213,6 +1929,7 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
               services={services}
               staff={staff}
               selectedBusinessId={selectedBusiness.id}
+              storageScope={scope}
             />
           </div>
         </div>
@@ -2447,8 +2164,8 @@ CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO aut
                     სისტემიდან გასვლა
                   </h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    {!isLocalMode && isSupabaseConfigured 
-                      ? "ნამდვილად გსურთ თქვენი ანგარიშიდან გასვლა? ყველა მონაცემი უსაფრთხოდ არის შენახული ღრუბელში."
+                    {!isLocalMode && isSupabaseConfigured
+                      ? "კლიენტები, სერვისები, ჯავშნები და შეხსენებები დაცულია ღრუბელში. უსაფრთხოებისთვის, ამ მოწყობილობაზე შენახული დოკუმენტები, ავტომატიზაციები და შეტყობინებების ისტორია გასვლისას წაიშლება."
                       : "თქვენ იმყოფებით ლოკალურ რეჟიმში. გასვლისას თქვენი ლოკალური მონაცემები გასუფთავდება. მონაცემების შენარჩუნებისთვის გირჩევთ გამოიყენოთ 'სარეზერვო ასლი' ავტორიზაციის გვერდზე."
                     }
                   </p>
