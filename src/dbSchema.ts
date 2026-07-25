@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS clients (
   company TEXT,
   source TEXT,
   lead_value NUMERIC,
+  assigned_staff_id TEXT,
+  communications JSONB,
+  attachments JSONB,
   notes TEXT,
   tag TEXT
 );
@@ -90,6 +93,36 @@ CREATE TABLE IF NOT EXISTS followups (
   notes TEXT
 );
 
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  business_id TEXT,
+  client_id TEXT,
+  client_name TEXT NOT NULL,
+  doc_type TEXT NOT NULL,
+  doc_number TEXT NOT NULL,
+  title TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  date TEXT NOT NULL,
+  due_date TEXT,
+  status TEXT DEFAULT 'გაგზავნილი',
+  items JSONB,
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS workflows (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  business_id TEXT,
+  title TEXT NOT NULL,
+  trigger_event TEXT NOT NULL,
+  trigger_label TEXT NOT NULL,
+  action_type TEXT NOT NULL,
+  action_label TEXT NOT NULL,
+  enabled BOOLEAN DEFAULT TRUE,
+  execution_count INT DEFAULT 0
+);
+
 -- 2. Add missing columns if tables already existed without them
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
@@ -97,6 +130,9 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS business_id TEXT;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS company TEXT;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_value NUMERIC;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS assigned_staff_id TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS communications JSONB;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS attachments JSONB;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
 ALTER TABLE services ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
@@ -118,6 +154,8 @@ ALTER TABLE services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE followups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workflows ENABLE ROW LEVEL SECURITY;
 
 -- 5. Create RLS Policies so users can ONLY access their own data
 DROP POLICY IF EXISTS "Users can manage their own businesses" ON businesses;
@@ -137,6 +175,12 @@ CREATE POLICY "Users can manage their own bookings" ON bookings FOR ALL TO authe
 
 DROP POLICY IF EXISTS "Users can manage their own followups" ON followups;
 CREATE POLICY "Users can manage their own followups" ON followups FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own documents" ON documents;
+CREATE POLICY "Users can manage their own documents" ON documents FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own workflows" ON workflows;
+CREATE POLICY "Users can manage their own workflows" ON workflows FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- 6. Refresh the PostgREST schema cache
 NOTIFY pgrst, 'reload schema';`;
