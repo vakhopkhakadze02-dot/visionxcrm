@@ -111,6 +111,9 @@ const mapClientFromDB = (c: any): Client => ({
   company: c.company || "",
   source: c.source || undefined,
   leadValue: c.lead_value ? Number(c.lead_value) : undefined,
+  assignedStaffId: c.assigned_staff_id || undefined,
+  communications: Array.isArray(c.communications) ? c.communications : undefined,
+  attachments: Array.isArray(c.attachments) ? c.attachments : undefined,
   notes: c.notes || "",
   totalBookings: 0,
   totalSpent: 0,
@@ -127,8 +130,69 @@ const mapClientToDB = (c: Client, userId: string, businessId?: string) => ({
   company: c.company || null,
   source: c.source || null,
   lead_value: c.leadValue || null,
+  assigned_staff_id: c.assignedStaffId || null,
+  communications: c.communications || null,
+  attachments: c.attachments || null,
   notes: c.notes || null,
   tag: c.tag || null
+});
+
+const mapDocumentFromDB = (d: any): DocumentInvoice => ({
+  id: d.id,
+  businessId: d.business_id,
+  clientId: d.client_id,
+  clientName: d.client_name,
+  docType: d.doc_type,
+  docNumber: d.doc_number,
+  title: d.title,
+  amount: Number(d.amount),
+  date: d.date,
+  dueDate: d.due_date || undefined,
+  status: d.status,
+  items: Array.isArray(d.items) ? d.items : undefined,
+  notes: d.notes || undefined
+});
+
+const mapDocumentToDB = (d: DocumentInvoice, userId: string) => ({
+  id: d.id,
+  user_id: userId,
+  business_id: d.businessId,
+  client_id: d.clientId,
+  client_name: d.clientName,
+  doc_type: d.docType,
+  doc_number: d.docNumber,
+  title: d.title,
+  amount: d.amount,
+  date: d.date,
+  due_date: d.dueDate || null,
+  status: d.status,
+  items: d.items || null,
+  notes: d.notes || null
+});
+
+const mapWorkflowFromDB = (w: any): WorkflowAutomation => ({
+  id: w.id,
+  businessId: w.business_id,
+  title: w.title,
+  triggerEvent: w.trigger_event,
+  triggerLabel: w.trigger_label,
+  actionType: w.action_type,
+  actionLabel: w.action_label,
+  enabled: w.enabled !== false,
+  executionCount: Number(w.execution_count) || 0
+});
+
+const mapWorkflowToDB = (w: WorkflowAutomation, userId: string) => ({
+  id: w.id,
+  user_id: userId,
+  business_id: w.businessId,
+  title: w.title,
+  trigger_event: w.triggerEvent,
+  trigger_label: w.triggerLabel,
+  action_type: w.actionType,
+  action_label: w.actionLabel,
+  enabled: w.enabled,
+  execution_count: w.executionCount
 });
 
 const isSchemaCacheOrTagError = (err: any) => {
@@ -139,8 +203,31 @@ const isSchemaCacheOrTagError = (err: any) => {
     code === "PGRST204" ||
     code === "42703" ||
     msg.includes("schema cache") ||
-    (msg.includes("column") && msg.includes("tag"))
+    msg.includes("column")
   );
+};
+
+/**
+ * Client columns introduced after the original schema. On a project where the
+ * newer migration has not been run, writing them fails the whole row — so the
+ * write is retried without them and the core fields (name, phone, email, notes)
+ * still save. The migration banner tells the user how to stop losing the rest.
+ */
+const CLIENT_COLUMNS_ADDED_LATER = [
+  "tag",
+  "business_id",
+  "company",
+  "source",
+  "lead_value",
+  "assigned_staff_id",
+  "communications",
+  "attachments"
+] as const;
+
+const stripNewerClientColumns = (payload: Record<string, any>): Record<string, any> => {
+  const core = { ...payload };
+  CLIENT_COLUMNS_ADDED_LATER.forEach(column => delete core[column]);
+  return core;
 };
 
 const mapServiceFromDB = (s: any): Service => ({
@@ -500,10 +587,9 @@ export default function App() {
 
     const local = scope.kind === "local";
 
-    // Modules with no cloud table yet — cached per scope so accounts sharing a
-    // browser never see each other's invoices, automations or message history.
-    setDocuments(readScoped(scope, "documents", local ? DEMO_DOCUMENTS : []));
-    setWorkflows(readScoped(scope, "workflows", local ? DEMO_WORKFLOWS : []));
+    // Still device-only: integration config and the delivery log. Cached per
+    // scope so accounts sharing a browser never see each other's message
+    // history, and cleared on sign-out.
     setIntegrationConfig(readScoped(scope, "integration_config", DEFAULT_INTEGRATION_CONFIG));
     setNotificationSettings(loadNotificationSettings(scope));
     setNotificationLogs(readScoped(scope, "notification_logs", []));
@@ -520,6 +606,8 @@ export default function App() {
       setStaff(readScoped(scope, "staff", startEmpty ? [] : initialStaff));
       setBookings(readScoped(scope, "bookings", startEmpty ? [] : initialBookings));
       setFollowups(readScoped(scope, "followups", startEmpty ? [] : demoFollowups(loadedBusinesses[0]?.id || LOCAL_BUSINESS.id)));
+      setDocuments(readScoped(scope, "documents", startEmpty ? [] : DEMO_DOCUMENTS));
+      setWorkflows(readScoped(scope, "workflows", startEmpty ? [] : DEMO_WORKFLOWS));
     } else {
       // Cloud scope: the database is the record, so nothing here is written to
       // disk. Anything left over from a previous scope is dropped immediately
@@ -531,18 +619,20 @@ export default function App() {
       setStaff([]);
       setBookings([]);
       setFollowups([]);
+      setDocuments([]);
+      setWorkflows([]);
     }
 
     setHydrated(true);
   }, [scope, hydrationNonce]);
 
   useEffect(() => {
-    if (canPersist) writeScoped(scope!, "documents", documents);
-  }, [documents, canPersist, scope]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "documents", documents);
+  }, [documents, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
-    if (canPersist) writeScoped(scope!, "workflows", workflows);
-  }, [workflows, canPersist, scope]);
+    if (canPersist && isLocalScope) writeScoped(scope!, "workflows", workflows);
+  }, [workflows, canPersist, isLocalScope, scope]);
 
   useEffect(() => {
     if (canPersist) writeScoped(scope!, "integration_config", integrationConfig);
@@ -669,16 +759,28 @@ export default function App() {
       const loadedStaff = stfRes.data.map(mapStaffFromDB);
       const loadedBookings = bokRes.data.map(mapBookingFromDB);
 
-      // Safe fetch for followups to avoid breaking if table is not created yet
-      let loadedFollowups: Followup[] = [];
-      try {
-        const folRes = await supabase.from("followups").select("*").eq("user_id", userId);
-        if (!folRes.error) {
-          loadedFollowups = folRes.data.map(mapFollowupFromDB);
+      // Tables added in later migrations. Fetched leniently so an account still
+      // loads on a project where the newer SQL has not been run yet — the
+      // migration banner tells the user what to run.
+      const fetchOptional = async <T,>(table: string, map: (row: any) => T): Promise<T[]> => {
+        try {
+          const res = await supabase.from(table).select("*").eq("user_id", userId);
+          if (res.error) {
+            console.warn(`Could not load "${table}":`, res.error);
+            return [];
+          }
+          return res.data.map(map);
+        } catch (err) {
+          console.warn(`Could not load "${table}":`, err);
+          return [];
         }
-      } catch (folErr) {
-        console.warn("Followups fetch error:", folErr);
-      }
+      };
+
+      const [loadedFollowups, loadedDocuments, loadedWorkflows] = await Promise.all([
+        fetchOptional("followups", mapFollowupFromDB),
+        fetchOptional("documents", mapDocumentFromDB),
+        fetchOptional("workflows", mapWorkflowFromDB)
+      ]);
 
       await verifyDatabaseSchema();
 
@@ -710,6 +812,8 @@ export default function App() {
       setStaff(loadedStaff);
       setBookings(loadedBookings);
       setFollowups(loadedFollowups);
+      setDocuments(loadedDocuments);
+      setWorkflows(loadedWorkflows);
       if (loadedBusinesses.length > 0) {
         setSelectedBusiness(loadedBusinesses[0]);
       }
@@ -735,10 +839,13 @@ export default function App() {
     const localStaff = readScoped<Staff[]>(LOCAL_SCOPE, "staff", []);
     const localBookings = readScoped<Booking[]>(LOCAL_SCOPE, "bookings", []);
     const localFollowups = readScoped<Followup[]>(LOCAL_SCOPE, "followups", []);
+    const localDocuments = readScoped<DocumentInvoice[]>(LOCAL_SCOPE, "documents", []);
+    const localWorkflows = readScoped<WorkflowAutomation[]>(LOCAL_SCOPE, "workflows", []);
 
     const totalRows =
       localClients.length + localServices.length + localStaff.length +
-      localBookings.length + localFollowups.length;
+      localBookings.length + localFollowups.length +
+      localDocuments.length + localWorkflows.length;
 
     if (totalRows === 0) {
       showDemoToast("მონაცემები ცარიელია", "Supabase", "ლოკალურ რეჟიმში ასატვირთი მონაცემები ვერ მოიძებნა.");
@@ -761,9 +868,9 @@ export default function App() {
       let { error } = await supabase.from("clients").upsert(rows, { onConflict: "id" });
 
       if (error && isSchemaCacheOrTagError(error)) {
-        console.warn("Retrying client upload without the 'tag' column:", error);
-        const rowsWithoutTag = rows.map(({ tag, ...rest }) => rest);
-        error = (await supabase.from("clients").upsert(rowsWithoutTag, { onConflict: "id" })).error;
+        console.warn("Retrying client upload with core columns only:", error);
+        const coreRows = rows.map(stripNewerClientColumns);
+        error = (await supabase.from("clients").upsert(coreRows, { onConflict: "id" })).error;
       }
       if (error) failures.push(`კლიენტები: ${error.message || JSON.stringify(error)}`);
     }
@@ -772,6 +879,8 @@ export default function App() {
     await upsert("staff", localStaff.map(s => mapStaffToDB(s, userId)), "თანამშრომლები");
     await upsert("bookings", localBookings.map(b => mapBookingToDB(b, userId)), "ჯავშნები");
     await upsert("followups", localFollowups.map(f => mapFollowupToDB(f, userId)), "შეხსენებები");
+    await upsert("documents", localDocuments.map(d => mapDocumentToDB(d, userId)), "დოკუმენტები");
+    await upsert("workflows", localWorkflows.map(w => mapWorkflowToDB(w, userId)), "ავტომატიზაციები");
 
     await fetchUserData(userId);
 
@@ -1033,6 +1142,18 @@ export default function App() {
     return !failed;
   };
 
+  // Invoices and automations belong to one business, like bookings and
+  // follow-ups. Without this, switching business showed the other one's records.
+  const businessDocuments = useMemo(
+    () => documents.filter(d => d.businessId === selectedBusiness.id),
+    [documents, selectedBusiness.id]
+  );
+
+  const businessWorkflows = useMemo(
+    () => workflows.filter(w => w.businessId === selectedBusiness.id),
+    [workflows, selectedBusiness.id]
+  );
+
   // Compute enriched clients dynamically
   const enrichedClients = useMemo(() => {
     return clients.map(client => {
@@ -1153,36 +1274,103 @@ export default function App() {
   };
 
   // Document actions
-  const handleAddDocument = (docData: Omit<DocumentInvoice, "id">) => {
+  const handleAddDocument = async (docData: Omit<DocumentInvoice, "id">) => {
     const newDoc: DocumentInvoice = {
       ...docData,
       id: `doc_${Date.now()}`
     };
+
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase
+          .from("documents")
+          .insert(mapDocumentToDB(newDoc, session.user.id));
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Error creating document in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "დოკუმენტის შექმნა", `ბაზაში ჩაწერა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
+      }
+    }
+
     setDocuments(prev => [newDoc, ...prev]);
   };
 
-  const handleUpdateDocumentStatus = (id: string, status: DocumentInvoice["status"]) => {
+  const handleUpdateDocumentStatus = async (id: string, status: DocumentInvoice["status"]) => {
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase.from("documents").update({ status }).eq("id", id);
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Error updating document status in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "სტატუსის განახლება", `სტატუსი ვერ განახლდა ბაზაში: ${err?.message || "უცნობი შეცდომა"}`);
+      }
+    }
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, status } : d));
   };
 
-  const handleDeleteDocument = (id: string) => {
+  const handleDeleteDocument = async (id: string) => {
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase.from("documents").delete().eq("id", id);
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Error deleting document in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "დოკუმენტის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
+      }
+    }
     setDocuments(prev => prev.filter(d => d.id !== id));
   };
 
   // Automation actions
-  const handleToggleWorkflow = (id: string) => {
-    setWorkflows(prev => prev.map(w => w.id === id ? { ...w, enabled: !w.enabled } : w));
+  const handleToggleWorkflow = async (id: string) => {
+    const target = workflows.find(w => w.id === id);
+    if (!target) return;
+    const enabled = !target.enabled;
+
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase.from("workflows").update({ enabled }).eq("id", id);
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Error toggling workflow in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "ავტომატიზაცია", `ცვლილება ვერ შეინახა ბაზაში: ${err?.message || "უცნობი შეცდომა"}`);
+      }
+    }
+
+    setWorkflows(prev => prev.map(w => w.id === id ? { ...w, enabled } : w));
   };
 
-  const handleAddWorkflow = (wfData: Omit<WorkflowAutomation, "id">) => {
+  const handleAddWorkflow = async (wfData: Omit<WorkflowAutomation, "id">) => {
     const newWf: WorkflowAutomation = {
       ...wfData,
       id: `wf_${Date.now()}`
     };
+
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase
+          .from("workflows")
+          .insert(mapWorkflowToDB(newWf, session.user.id));
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Error creating workflow in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "ავტომატიზაციის შექმნა", `ბაზაში ჩაწერა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
+      }
+    }
+
     setWorkflows(prev => [...prev, newWf]);
   };
 
-  const handleDeleteWorkflow = (id: string) => {
+  const handleDeleteWorkflow = async (id: string) => {
+    if (!isLocalMode && session?.user?.id) {
+      try {
+        const { error } = await supabase.from("workflows").delete().eq("id", id);
+        if (error) throw error;
+      } catch (err: any) {
+        console.warn("Error deleting workflow in Supabase:", err);
+        showDemoToast("სინქრონიზაციის შეცდომა", "ავტომატიზაციის წაშლა", `წაშლა ვერ მოხერხდა: ${err?.message || "უცნობი შეცდომა"}`);
+      }
+    }
     setWorkflows(prev => prev.filter(w => w.id !== id));
   };
 
@@ -1276,13 +1464,12 @@ export default function App() {
           .insert(payload);
         if (error) {
           if (isSchemaCacheOrTagError(error)) {
-            // Fallback: retry without 'tag' field if schema cache issue
-            const { tag, ...payloadWithoutTag } = payload;
+            // Fallback: save the core fields when newer columns are missing
             const { error: retryErr } = await supabase
               .from("clients")
-              .insert(payloadWithoutTag);
+              .insert(stripNewerClientColumns(payload));
             if (retryErr) throw retryErr;
-            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტი შეინახა ტეგის გარეშე. PostgREST ქეშის განახლებისთვის გაუშვით: NOTIFY pgrst, 'reload schema';");
+            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტი შეინახა ძირითადი ველებით. დანარჩენის შესანახად გაუშვით მიგრაციის SQL კოდი Supabase-ში.");
           } else {
             throw error;
           }
@@ -1313,14 +1500,13 @@ export default function App() {
           .eq("id", updatedClient.id);
         if (error) {
           if (isSchemaCacheOrTagError(error)) {
-            // Fallback: retry update without 'tag' field so basic fields (name, phone, email, notes) still save!
-            const { tag, ...payloadWithoutTag } = payload;
+            // Fallback: save the core fields when newer columns are missing
             const { error: retryErr } = await supabase
               .from("clients")
-              .update(payloadWithoutTag)
+              .update(stripNewerClientColumns(payload))
               .eq("id", updatedClient.id);
             if (retryErr) throw retryErr;
-            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტის მონაცემები განახლდა (ტეგის გარეშე). PostgREST ქეშის განახლებისთვის გაუშვით: NOTIFY pgrst, 'reload schema';");
+            showDemoToast("სქემის ქეშის გაფრთხილება", "Supabase Schema Cache", "კლიენტის ძირითადი ველები განახლდა. დანარჩენის შესანახად გაუშვით მიგრაციის SQL კოდი Supabase-ში.");
           } else {
             throw error;
           }
@@ -2038,8 +2224,8 @@ export default function App() {
           )}
 
           {currentTab === "documents" && (
-            <DocumentsView 
-              documents={documents}
+            <DocumentsView
+              documents={businessDocuments}
               clients={enrichedClients}
               selectedBusiness={selectedBusiness}
               onAddDocument={handleAddDocument}
@@ -2049,8 +2235,8 @@ export default function App() {
           )}
 
           {currentTab === "automations" && (
-            <AutomationsView 
-              workflows={workflows}
+            <AutomationsView
+              workflows={businessWorkflows}
               selectedBusiness={selectedBusiness}
               onAddWorkflow={handleAddWorkflow}
               onToggleWorkflow={handleToggleWorkflow}
@@ -2165,7 +2351,7 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     {!isLocalMode && isSupabaseConfigured
-                      ? "კლიენტები, სერვისები, ჯავშნები და შეხსენებები დაცულია ღრუბელში. უსაფრთხოებისთვის, ამ მოწყობილობაზე შენახული დოკუმენტები, ავტომატიზაციები და შეტყობინებების ისტორია გასვლისას წაიშლება."
+                      ? "კლიენტები, სერვისები, ჯავშნები, შეხსენებები, დოკუმენტები და ავტომატიზაციები დაცულია ღრუბელში. უსაფრთხოებისთვის, ამ მოწყობილობაზე შენახული შეტყობინებების ისტორია გასვლისას წაიშლება."
                       : "თქვენ იმყოფებით ლოკალურ რეჟიმში. გასვლისას თქვენი ლოკალური მონაცემები გასუფთავდება. მონაცემების შენარჩუნებისთვის გირჩევთ გამოიყენოთ 'სარეზერვო ასლი' ავტორიზაციის გვერდზე."
                     }
                   </p>
