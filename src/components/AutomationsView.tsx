@@ -20,6 +20,7 @@ import {
   ToggleRight
 } from "lucide-react";
 import { WorkflowAutomation, Business } from "../types";
+import ConfirmModal from "./ConfirmModal";
 
 interface AutomationsViewProps {
   workflows: WorkflowAutomation[];
@@ -39,6 +40,7 @@ export default function AutomationsView({
   onRunWorkflowTest
 }: AutomationsViewProps) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [workflowToDelete, setWorkflowToDelete] = useState<WorkflowAutomation | null>(null);
   const [title, setTitle] = useState("");
   const [triggerEvent, setTriggerEvent] = useState<WorkflowAutomation["triggerEvent"]>("new_lead");
   const [actionType, setActionType] = useState<WorkflowAutomation["actionType"]>("send_sms");
@@ -139,7 +141,7 @@ export default function AutomationsView({
                     )}
                   </button>
                   <button
-                    onClick={() => onDeleteWorkflow(wf.id)}
+                    onClick={() => setWorkflowToDelete(wf)}
                     className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-400 hover:text-rose-600 rounded cursor-pointer"
                     title="წაშლა"
                   >
@@ -265,6 +267,20 @@ export default function AutomationsView({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={workflowToDelete !== null}
+        onClose={() => setWorkflowToDelete(null)}
+        onConfirm={() => {
+          if (workflowToDelete) {
+            onDeleteWorkflow(workflowToDelete.id);
+          }
+        }}
+        title="ავტომატიზაციის წაშლა"
+        message={workflowToDelete ? `ნამდვილად გსურთ ავტომატიზაციის (${workflowToDelete.title}) წაშლა?` : ""}
+        confirmText="წაშლა"
+        variant="danger"
+      />
     </div>
   );
 }

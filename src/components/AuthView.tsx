@@ -4,6 +4,8 @@ import { supabase, isSupabaseConfigured } from "../supabaseClient";
 import { SETUP_SQL } from "../dbSchema";
 import { LOCAL_SCOPE, exportScopeData, importBackupData } from "../storage";
 import { Lock, Mail, Building2, ChevronRight, HelpCircle, Database, CheckCircle2, ArrowLeft, Key, Download, Upload, Search } from "lucide-react";
+import { toDateKey } from "../dates";
+import { newId } from "../ids";
 
 interface AuthViewProps {
   onAuthSuccess: (session: any) => void;
@@ -129,19 +131,24 @@ export default function AuthView({ onAuthSuccess, onContinueLocal }: AuthViewPro
 
         if (data?.user) {
           localStorage.setItem("vxcrm_last_active_email", email);
-          // Attempt to pre-create the business for this user
-          try {
-            const { error: dbError } = await supabase.from("businesses").insert({
-              id: `bus_${Date.now()}`,
-              user_id: data.user.id,
-              name: businessName,
-              owner_name: ownerName,
-              role: "მფლობელი",
-              logo_color: "bg-indigo-600 text-white",
-            });
-            if (dbError) console.error("Error inserting business", dbError);
-          } catch (err) {
-            console.error("Failed to insert initial business", err);
+          // Only pre-create the business when sign-up returned a usable
+          // session. With email confirmation enabled there is no session yet,
+          // so this insert would be rejected by RLS; the app creates the
+          // business on first sign-in instead.
+          if (data.session) {
+            try {
+              const { error: dbError } = await supabase.from("businesses").insert({
+                id: newId("bus"),
+                user_id: data.user.id,
+                name: businessName,
+                owner_name: ownerName,
+                role: "მფლობელი",
+                logo_color: "bg-indigo-600 text-white",
+              });
+              if (dbError) console.error("Error inserting business", dbError);
+            } catch (err) {
+              console.error("Failed to insert initial business", err);
+            }
           }
 
           setSuccessMsg("რეგისტრაცია წარმატებით დასრულდა! გთხოვთ შეხვიდეთ სისტემაში.");
@@ -240,7 +247,7 @@ export default function AuthView({ onAuthSuccess, onContinueLocal }: AuthViewPro
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
       const downloadAnchor = document.createElement("a");
       downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `visionx_crm_backup_${new Date().toISOString().split('T')[0]}.json`);
+      downloadAnchor.setAttribute("download", `visionx_crm_backup_${toDateKey()}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();

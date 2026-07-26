@@ -770,7 +770,7 @@ export default function App() {
       if (loadedBusinesses.length === 0) {
         const metadata = session?.user?.user_metadata || {};
         const defaultBus: Business = {
-          id: `bus_${Date.now()}`,
+          id: newId("bus"),
           name: metadata.business_name || "ჩემი ბიზნესი",
           ownerName: metadata.owner_name || "მფლობელი",
           role: "მფლობელი",
@@ -1034,7 +1034,7 @@ export default function App() {
       const result = await deliverNotification("sms", client.phone, smsBody);
 
       const newLog: NotificationLog = {
-        id: `log_sms_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        id: newId("log_sms"),
         businessId: selectedBusiness.id,
         bookingId: booking.id,
         clientName: client.name,
@@ -1061,7 +1061,7 @@ export default function App() {
       const result = await deliverNotification("email", client.email, emailBody, templateParams);
 
       const newLog: NotificationLog = {
-        id: `log_email_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        id: newId("log_email"),
         businessId: selectedBusiness.id,
         bookingId: booking.id,
         clientName: client.name,
@@ -1150,7 +1150,7 @@ export default function App() {
 
   const handleAddBusiness = async (name: string, owner: string, category: string) => {
     const newBus: Business = {
-      id: `bus_${Date.now()}`,
+      id: newId("bus"),
       name,
       ownerName: owner,
       category,
@@ -1185,7 +1185,7 @@ export default function App() {
   const handleAddFollowup = async (followupData: Omit<Followup, "id" | "businessId">) => {
     const newFollowup: Followup = {
       ...followupData,
-      id: `fol_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: newId("fol"),
       businessId: selectedBusiness.id
     };
 
@@ -1231,7 +1231,7 @@ export default function App() {
   const handleAddDocument = async (docData: Omit<DocumentInvoice, "id">) => {
     const newDoc: DocumentInvoice = {
       ...docData,
-      id: `doc_${Date.now()}`
+      id: newId("doc")
     };
 
     sync.enqueue({
@@ -1281,7 +1281,7 @@ export default function App() {
   const handleAddWorkflow = async (wfData: Omit<WorkflowAutomation, "id">) => {
     const newWf: WorkflowAutomation = {
       ...wfData,
-      id: `wf_${Date.now()}`
+      id: newId("wf")
     };
 
     sync.enqueue({
@@ -1319,7 +1319,7 @@ export default function App() {
       // Add
       const newBooking: Booking = {
         ...bookingData,
-        id: `bok_${Date.now()}`
+        id: newId("bok")
       };
       sync.enqueue({
         entity: "bookings",
@@ -1352,7 +1352,7 @@ export default function App() {
   const handleAddClient = async (clientData: Omit<Client, "id" | "totalBookings" | "totalSpent">): Promise<Client> => {
     const newClient: Client = {
       ...clientData,
-      id: `cli_${Date.now()}`,
+      id: newId("cli"),
       totalBookings: 0,
       totalSpent: 0
     };
@@ -1396,7 +1396,7 @@ export default function App() {
   const handleAddService = async (serviceData: Omit<Service, "id">) => {
     const newService: Service = {
       ...serviceData,
-      id: `ser_${Date.now()}`
+      id: newId("ser")
     };
 
     sync.enqueue({
@@ -1435,7 +1435,7 @@ export default function App() {
   const handleAddStaff = async (memberData: Omit<Staff, "id">) => {
     const newMember: Staff = {
       ...memberData,
-      id: `stf_${Date.now()}`
+      id: newId("stf")
     };
 
     sync.enqueue({
@@ -2127,6 +2127,7 @@ export default function App() {
         bookingToEdit={bookingToEdit}
         clients={enrichedClients}
         services={services}
+        bookings={bookings}
         staff={staff}
         selectedBusinessId={selectedBusiness.id}
         defaultDate={bookingDefaultDate}

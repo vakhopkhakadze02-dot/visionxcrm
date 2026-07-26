@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { DocumentInvoice, Client, Business, formatPrice, CurrencyCode } from "../types";
 import CurrencySelector from "./CurrencySelector";
+import { toDateKey, dateKeyFromNow } from "../dates";
+import ConfirmModal from "./ConfirmModal";
 
 interface DocumentsViewProps {
   documents: DocumentInvoice[];
@@ -54,6 +56,7 @@ export default function DocumentsView({
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [docCurrency, setDocCurrency] = useState<CurrencyCode>(selectedBusiness.currency || "GEL");
+  const [docToDelete, setDocToDelete] = useState<DocumentInvoice | null>(null);
   const [items, setItems] = useState<{ name: string; qty: number; price: number }[]>([
     { name: "მომსახურების პაკეტი", qty: 1, price: 100 }
   ]);
@@ -96,8 +99,8 @@ export default function DocumentsView({
       docType,
       title: title || (docType === "invoice" ? "ინვოისი" : docType === "contract" ? "ხელშეკრულება" : "კომერციული შეთავაზება"),
       amount,
-      date: new Date().toISOString().split("T")[0],
-      dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+      date: toDateKey(),
+      dueDate: dueDate || dateKeyFromNow(7),
       status: "გაგზავნილი",
       items,
       notes
@@ -279,7 +282,7 @@ export default function DocumentsView({
                           <Printer className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => onDeleteDocument(doc.id)}
+                          onClick={() => setDocToDelete(doc)}
                           className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-500 rounded-lg transition-colors cursor-pointer"
                           title="წაშლა"
                         >
@@ -520,6 +523,20 @@ export default function DocumentsView({
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={docToDelete !== null}
+        onClose={() => setDocToDelete(null)}
+        onConfirm={() => {
+          if (docToDelete) {
+            onDeleteDocument(docToDelete.id);
+          }
+        }}
+        title="დოკუმენტის წაშლა"
+        message={docToDelete ? `ნამდვილად გსურთ დოკუმენტის (${docToDelete.docNumber} — ${docToDelete.title}) წაშლა? ეს მოქმედება შეუქცევადია.` : ""}
+        confirmText="წაშლა"
+        variant="danger"
+      />
     </div>
   );
 }

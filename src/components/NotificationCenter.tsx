@@ -7,6 +7,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { Bell, BellOff, BellRing, Check, CheckCheck, Clock, Sparkles, Trash2, User, X } from "lucide-react";
 import { Booking, Client, Service, Staff } from "../types";
 import { StorageScope, readScoped, writeScoped } from "../storage";
+import { toDateKey } from "../dates";
+import { newId } from "../ids";
 
 interface LocalNotification {
   id: string;
@@ -134,7 +136,7 @@ export default function NotificationCenter({
     const message = `${clientName}-ს ჩაწერილი აქვს სერვისი "${serviceName}" ${booking.time}-ზე (1 საათში).`;
 
     const newNotification: LocalNotification = {
-      id: `notif_${Date.now()}_${booking.id}`,
+      id: newId(`notif_${booking.id}`),
       bookingId: booking.id,
       title,
       message,
@@ -238,12 +240,12 @@ export default function NotificationCenter({
   const triggerMockReminder = () => {
     // Generate a beautiful dummy booking
     const randomBooking: Booking = {
-      id: `mock_${Date.now()}`,
+      id: newId("mock"),
       businessId: selectedBusinessId,
       clientId: clients[0]?.id || "cli_1",
       serviceId: services[0]?.id || "ser_1",
       staffId: staff[0]?.id || "stf_1",
-      date: new Date().toISOString().split("T")[0],
+      date: toDateKey(),
       time: new Date(Date.now() + 55 * 60000).toLocaleTimeString("ka-GE", { hour: "2-digit", minute: "2-digit" }),
       price: 45,
       status: "მოლოდინში"

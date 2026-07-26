@@ -39,6 +39,8 @@ import {
 } from "recharts";
 import { Booking, Client, Service, Staff, Business, formatPrice } from "../types";
 import KPIDetailsModal from "./KPIDetailsModal";
+import { toDateKey } from "../dates";
+import { buildCsv, downloadCsv } from "../csv";
 
 interface AnalyticsViewProps {
   selectedBusiness: Business;
@@ -159,7 +161,7 @@ export default function AnalyticsView({
     for (let i = 29; i >= 0; i--) {
       const d = new Date(referenceDate);
       d.setDate(referenceDate.getDate() - i);
-      const dateString = d.toISOString().split("T")[0]; // YYYY-MM-DD
+      const dateString = toDateKey(d);
       
       const dayNum = d.getDate();
       const monthNames = ["იან", "ებ", "მარ", "აპრ", "მაი", "ივნ", "ივლ", "აგვ", "სექ", "ოქტ", "ნოე", "დეკ"];
@@ -265,19 +267,10 @@ export default function AnalyticsView({
       c.notes || ""
     ]);
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `visionx_clients_${selectedBusiness.name.replace(/\s+/g, "_")}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCsv(
+      `visionx_clients_${selectedBusiness.name.replace(/\s+/g, "_")}.csv`,
+      buildCsv(headers, rows)
+    );
     setSuccessMsg("კლიენტების სია წარმატებით იქნა ექსპორტირებული CSV ფაილში!");
     setErrorMsg("");
   };
@@ -305,19 +298,10 @@ export default function AnalyticsView({
       ];
     });
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `visionx_bookings_${selectedBusiness.name.replace(/\s+/g, "_")}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCsv(
+      `visionx_bookings_${selectedBusiness.name.replace(/\s+/g, "_")}.csv`,
+      buildCsv(headers, rows)
+    );
     setSuccessMsg("ჯავშნების სია წარმატებით იქნა ექსპორტირებული CSV ფაილში!");
     setErrorMsg("");
   };

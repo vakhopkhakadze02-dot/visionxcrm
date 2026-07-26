@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { X, User, Sparkles, UserSquare2, Calendar, Clock, DollarSign, Euro, MessageSquare } from "lucide-react";
 import { Booking, Client, Service, Staff, formatPrice, CurrencyCode } from "../types";
+import { minutesSinceMidnight } from "../dates";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -15,6 +16,8 @@ interface BookingModalProps {
   bookingToEdit?: Booking | null;
   clients: Client[];
   services: Service[];
+  /** Existing bookings, used to reject double-booking a staff member. */
+  bookings: Booking[];
   staff: Staff[];
   selectedBusinessId: string;
   defaultDate?: string;
@@ -29,6 +32,7 @@ export default function BookingModal({
   bookingToEdit,
   clients,
   services,
+  bookings,
   staff,
   selectedBusinessId,
   defaultDate,
@@ -54,8 +58,12 @@ export default function BookingModal({
   const [newClientNotes, setNewClientNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Update form fields if editing a booking
+  // Populate the form when the modal opens, or when switching between add and
+  // edit. Deliberately not keyed on clients/services/staff: those arrays change
+  // identity whenever any record changes, and adding a client from inside this
+  // modal used to re-run the effect and wipe everything just typed.
   useEffect(() => {
+    if (!isOpen) return;
     setError(null);
     if (bookingToEdit) {
       setClientId(bookingToEdit.clientId);
@@ -81,7 +89,7 @@ export default function BookingModal({
       setSendSms(true);
       setShowQuickAdd(false);
     }
-  }, [bookingToEdit, isOpen, clients, services, staff, defaultDate]);
+  }, [bookingToEdit, isOpen, defaultDate]);
 
   const handleQuickAddClient = async () => {
     setError(null);
@@ -126,11 +134,49 @@ export default function BookingModal({
     }
   };
 
+  /**
+   * The booking that would overlap this one, if any.
+   *
+   * A slot runs from its start time for the service's duration, so two bookings
+   * clash when those windows intersect for the same staff member on the same
+   * day. Cancelled bookings are ignored, as is the booking being edited.
+   */
+  const conflictingBooking = (): Booking | null => {
+    const start = minutesSinceMidnight(time);
+    const duration = services.find(s => s.id === serviceId)?.duration ?? 0;
+    if (start === null || duration <= 0) return null;
+    const end = start + duration;
+
+    return (
+      bookings.find(b => {
+        if (b.id === bookingToEdit?.id) return false;
+        if (b.staffId !== staffId || b.date !== date) return false;
+        if (b.status === "გაუქმებული") return false;
+
+        const otherStart = minutesSinceMidnight(b.time);
+        if (otherStart === null) return false;
+        const otherDuration = services.find(s => s.id === b.serviceId)?.duration ?? 0;
+        return otherStart < end && start < otherStart + otherDuration;
+      }) ?? null
+    );
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!clientId || !serviceId || !staffId || !date || !time) {
       setError("გთხოვთ შეავსოთ ყველა აუცილებელი ველი");
+      return;
+    }
+
+    const clash = conflictingBooking();
+    if (clash) {
+      const staffName = staff.find(s => s.id === staffId)?.name || "თანამშრომელი";
+      const clashClient = clients.find(c => c.id === clash.clientId)?.name || "სხვა კლიენტი";
+      const clashService = services.find(s => s.id === clash.serviceId);
+      setError(
+        `${staffName} ამ დროს დაკავებულია: ${clash.time}${clashService ? ` (${clashService.duration} წუთი)` : ""} — ${clashClient}. აირჩიეთ სხვა დრო ან თანამშრომელი.`
+      );
       return;
     }
 
@@ -182,7 +228,7 @@ export default function BookingModal({
         </div>
 
         {/* Modal Form */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+        <form id="booking-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-lg flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
@@ -492,7 +538,8 @@ export default function BookingModal({
             გაუქმება
           </button>
           <button
-            onClick={handleSubmit}
+            type="submit"
+            form="booking-form"
             className="px-4 py-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all font-bold"
           >
             {bookingToEdit ? "ცვლილების შენახვა" : "ჯავშნის გაფორმება"}
