@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import { Client, CommunicationItem, FileAttachment, formatPrice, CurrencyCode } from "../types";
 import ConfirmModal from "./ConfirmModal";
+import { buildCsv, downloadCsv } from "../csv";
+import { newId } from "../ids";
 
 export const tagStyles: Record<string, { bg: string, dot: string, label: string }> = {
   "წარმატებული გარიგება": {
@@ -92,19 +94,7 @@ export default function ClientsView({
       c.notes || ""
     ]);
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "visionx_crm_leads_clients.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCsv("visionx_crm_leads_clients.csv", buildCsv(headers, rows));
   };
 
   // Form states
@@ -180,7 +170,7 @@ export default function ClientsView({
     if (!activeCommClient || !commSummary.trim()) return;
 
     const newLog: CommunicationItem = {
-      id: "comm_" + Date.now(),
+      id: newId("comm"),
       type: commType,
       date: new Date().toLocaleString("ka-GE"),
       summary: commSummary.trim(),

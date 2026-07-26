@@ -49,7 +49,7 @@ export default function IntegrationsView({
     setTestSuccessMessage(null);
     setTimeout(() => {
       setTestingService(null);
-      setTestSuccessMessage(`კავშირი ${serviceName}-თან წარმატებით დამყარდა! (200 OK)`);
+      setTestSuccessMessage(`${serviceName}: სადემონსტრაციო შემოწმება. რეალური კავშირი ჯერ არ არის რეალიზებული — ეს ღილაკი ნამდვილ API-ს არ იძახებს.`);
       setTimeout(() => setTestSuccessMessage(null), 4000);
     }, 1200);
   };

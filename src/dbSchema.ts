@@ -185,6 +185,29 @@ CREATE POLICY "Users can manage their own workflows" ON workflows FOR ALL TO aut
 -- 6. Refresh the PostgREST schema cache
 NOTIFY pgrst, 'reload schema';`;
 
+/**
+ * Client columns introduced after the original schema. On a project where the
+ * newer migration has not been run, writing them fails the whole row — so the
+ * write is retried without them and the core fields (name, phone, email, notes)
+ * still save. The migration banner tells the user how to stop losing the rest.
+ */
+export const CLIENT_COLUMNS_ADDED_LATER = [
+  "tag",
+  "business_id",
+  "company",
+  "source",
+  "lead_value",
+  "assigned_staff_id",
+  "communications",
+  "attachments"
+] as const;
+
+export const stripNewerClientColumns = (payload: Record<string, any>): Record<string, any> => {
+  const core = { ...payload };
+  CLIENT_COLUMNS_ADDED_LATER.forEach(column => delete core[column]);
+  return core;
+};
+
 /** The one statement needed when only the newer 'tag' column is missing. */
 export const TAG_MIGRATION_SQL = `ALTER TABLE clients ADD COLUMN IF NOT EXISTS tag TEXT;
 NOTIFY pgrst, 'reload schema';`;

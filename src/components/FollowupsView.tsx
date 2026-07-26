@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { Followup, Client } from "../types";
 import ConfirmModal from "./ConfirmModal";
+import { toDateKey, dateKeyFromNow } from "../dates";
 
 interface FollowupsViewProps {
   followups: Followup[];
@@ -59,11 +60,7 @@ export default function FollowupsView({
   const [selectedClientId, setSelectedClientId] = useState<string>("manual");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
-  const [date, setDate] = useState(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split("T")[0];
-  });
+  const [date, setDate] = useState(() => dateKeyFromNow(1));
   const [time, setTime] = useState("12:00");
   const [type, setType] = useState<"call" | "message">("call");
   const [topic, setTopic] = useState("");
@@ -79,12 +76,8 @@ export default function FollowupsView({
   const [editNotes, setEditNotes] = useState("");
 
   // Date constants
-  const todayStr = new Date().toISOString().split("T")[0];
-  const tomorrowStr = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split("T")[0];
-  })();
+  const todayStr = toDateKey();
+  const tomorrowStr = dateKeyFromNow(1);
 
   // Handle client selection change in form
   const handleClientChange = (clientId: string) => {
