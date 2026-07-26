@@ -6,6 +6,8 @@
 import React, { useState } from "react";
 import { Plus, Scissors, Clock, DollarSign, Euro, Coins, Tag, Trash2, Edit2, Layers } from "lucide-react";
 import { Service, formatPrice, CurrencyCode } from "../types";
+import PriceTag, { CurrencyDisplayMode } from "./PriceTag";
+import { RateTable } from "../currency";
 import ConfirmModal from "./ConfirmModal";
 
 interface ServicesViewProps {
@@ -14,6 +16,8 @@ interface ServicesViewProps {
   onEditService: (service: Service) => void;
   onDeleteService: (id: string) => void;
   currency?: CurrencyCode;
+  currencyDisplay?: CurrencyDisplayMode;
+  rates?: RateTable | null;
 }
 
 export default function ServicesView({
@@ -21,7 +25,9 @@ export default function ServicesView({
   onAddService,
   onEditService,
   onDeleteService,
-  currency = "GEL"
+  currency = "GEL",
+  currencyDisplay = "record",
+  rates = null
 }: ServicesViewProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("ყველა");
   const [showModal, setShowModal] = useState(false);
@@ -197,7 +203,14 @@ export default function ServicesView({
                       ფასი
                     </span>
                     <span className="text-xs font-extrabold text-slate-800">
-                      {formatPrice(service.price, currency)}
+                      <PriceTag
+                        amount={service.price}
+                        currency={service.currency}
+                        businessCurrency={currency}
+                        mode={currencyDisplay}
+                        rates={rates}
+                        secondaryClassName="text-[10px]"
+                      />
                     </span>
                   </div>
                 </div>

@@ -1,11 +1,19 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Coins, ChevronDown, Check } from "lucide-react";
 import { CurrencyCode } from "../types";
+import { CurrencyDisplayMode } from "./PriceTag";
+import { RateTable } from "../currency";
 
 interface CurrencySelectorProps {
   currentCurrency: CurrencyCode;
   onSelectCurrency: (currency: CurrencyCode) => void;
   compact?: boolean;
+  /** Which currency leads when a record was created in a different one. */
+  displayMode?: CurrencyDisplayMode;
+  onDisplayModeChange?: (mode: CurrencyDisplayMode) => void;
+  /** NBG rates, for showing what is in force and how fresh it is. */
+  rates?: RateTable | null;
+  onRefreshRates?: () => void;
 }
 
 export const CURRENCIES: { code: CurrencyCode; symbol: string; label: string; nameKa: string }[] = [
@@ -18,7 +26,11 @@ export const CURRENCIES: { code: CurrencyCode; symbol: string; label: string; na
 export default function CurrencySelector({
   currentCurrency = "GEL",
   onSelectCurrency,
-  compact = false
+  compact = false,
+  displayMode = "record",
+  onDisplayModeChange,
+  rates = null,
+  onRefreshRates
 }: CurrencySelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -55,13 +67,13 @@ export default function CurrencySelector({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-1.5 w-48 rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute right-0 mt-1.5 w-64 rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
           <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
               <Coins className="w-3 h-3 text-indigo-500" />
               ვალუტა
             </span>
-            <span className="text-[9px] font-medium text-slate-400">მთავარი: GEL</span>
+            <span className="text-[9px] font-medium text-slate-400">მთავარი: {currentCurrency}</span>
           </div>
           <div className="py-1">
             {CURRENCIES.map((item) => {
@@ -94,6 +106,57 @@ export default function CurrencySelector({
               );
             })}
           </div>
+
+          {onDisplayModeChange && (
+            <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-2.5 space-y-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                სხვა ვალუტის ჩანაწერები
+              </span>
+              <div className="flex bg-slate-100 dark:bg-slate-950 p-0.5 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => onDisplayModeChange("record")}
+                  className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                    displayMode === "record"
+                      ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xs"
+                      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                  }`}
+                  title="თანხა ჩანს იმ ვალუტით, რომლითაც შეიქმნა"
+                >
+                  ორიგინალი
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDisplayModeChange("business")}
+                  className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                    displayMode === "business"
+                      ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xs"
+                      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                  }`}
+                  title={`თანხა ჩანს ${currentCurrency}-ში, ეროვნული ბანკის კურსით`}
+                >
+                  {currentCurrency}-ში
+                </button>
+              </div>
+              <p className="text-[9.5px] text-slate-400 leading-snug">
+                ჩანაწერი ინახავს იმ ვალუტას, რომლითაც შეიქმნა — ვალუტის შეცვლა ძველ თანხებს არ ცვლის.
+              </p>
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-[9.5px] text-slate-400">
+                  {rates?.date ? `NBG კურსი: ${rates.date}` : "კურსი ჯერ არ ჩამოიტვირთა"}
+                </span>
+                {onRefreshRates && (
+                  <button
+                    type="button"
+                    onClick={onRefreshRates}
+                    className="text-[9.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    განახლება
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

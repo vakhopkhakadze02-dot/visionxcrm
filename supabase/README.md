@@ -65,3 +65,26 @@ VITE_SUPABASE_ANON_KEY=<anon public key>
 
 Never put a Twilio token, EmailJS private key or the Supabase service-role key in
 a `VITE_`-prefixed variable — Vite inlines those into the JavaScript bundle.
+
+## 4. Exchange rates function
+
+Currency conversion uses National Bank of Georgia rates, served by the
+`exchange-rates` function. Deploy it alongside the other one:
+
+```bash
+supabase functions deploy exchange-rates
+```
+
+No secrets to set — it uses the automatically injected `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`. The service role is required because
+`exchange_rates` is readable by signed-in users but writable only by this
+function.
+
+It fetches nbg.gov.ge at most once per publication day and caches the result in
+the `exchange_rates` table, so the whole project makes one request a day rather
+than one per user per device. It runs server-side because nbg.gov.ge sends no
+CORS headers — the browser cannot call it directly.
+
+If NBG is unreachable, the function serves the most recent cached day and the
+app labels how old the rates are. Amounts are never converted with a guessed
+rate: with no rate available the original currency is shown on its own.

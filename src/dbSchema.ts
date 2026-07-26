@@ -123,6 +123,17 @@ CREATE TABLE IF NOT EXISTS workflows (
   execution_count INT DEFAULT 0
 );
 
+-- Shared reference data, not owned by any user: NBG rates, one row per day
+-- and currency. Written only by the exchange-rates function (service role).
+CREATE TABLE IF NOT EXISTS exchange_rates (
+  date TEXT NOT NULL,
+  code TEXT NOT NULL,
+  rate NUMERIC NOT NULL,
+  quantity INT NOT NULL DEFAULT 1,
+  fetched_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (date, code)
+);
+
 -- 2. Add missing columns if tables already existed without them
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
@@ -138,6 +149,14 @@ ALTER TABLE services ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE followups ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- Every priced record carries the currency it was created in, so changing the
+-- business currency later can never relabel historical amounts. Existing rows
+-- default to GEL, which is what they were entered in before this column existed.
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
+ALTER TABLE services ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
 
 -- 3. Grant table permissions to signed-in users
 -- Note: no grants to the "anon" role. Every query this app makes is
@@ -156,6 +175,7 @@ ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE followups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workflows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exchange_rates ENABLE ROW LEVEL SECURITY;
 
 -- 5. Create RLS Policies so users can ONLY access their own data
 DROP POLICY IF EXISTS "Users can manage their own businesses" ON businesses;
@@ -181,6 +201,12 @@ CREATE POLICY "Users can manage their own documents" ON documents FOR ALL TO aut
 
 DROP POLICY IF EXISTS "Users can manage their own workflows" ON workflows;
 CREATE POLICY "Users can manage their own workflows" ON workflows FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Exchange rates are public reference data: any signed-in user may read them,
+-- but only the exchange-rates function (service role, which bypasses RLS) may
+-- write. No insert/update policy is defined, so client writes are refused.
+DROP POLICY IF EXISTS "Signed-in users can read exchange rates" ON exchange_rates;
+CREATE POLICY "Signed-in users can read exchange rates" ON exchange_rates FOR SELECT TO authenticated USING (true);
 
 -- 6. Refresh the PostgREST schema cache
 NOTIFY pgrst, 'reload schema';`;
