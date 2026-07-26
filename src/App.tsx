@@ -1277,9 +1277,30 @@ export default function App() {
   };
 
   // Document actions
-  const handleAddDocument = async (docData: Omit<DocumentInvoice, "id">) => {
+  /**
+   * Next document number for a business, as PRO/CON/INV-<year>-<seq>.
+   *
+   * Numbered per business and per type so an invoice and a proposal do not
+   * share a sequence, and so a second business starts from 001 rather than
+   * continuing the first one's numbering.
+   */
+  const nextDocNumber = (docType: DocumentInvoice["docType"]): string => {
+    const prefix = docType === "invoice" ? "INV" : docType === "contract" ? "CON" : "PRO";
+    const year = new Date().getFullYear();
+    const stem = `${prefix}-${year}-`;
+
+    const highest = documents
+      .filter(d => d.businessId === selectedBusiness.id && d.docNumber?.startsWith(stem))
+      .reduce((max, d) => Math.max(max, Number(d.docNumber.slice(stem.length)) || 0), 0);
+
+    return `${stem}${String(highest + 1).padStart(3, "0")}`;
+  };
+
+  const handleAddDocument = async (docData: Omit<DocumentInvoice, "id" | "docNumber">) => {
     const newDoc: DocumentInvoice = {
       ...docData,
+      // DocumentsView does not supply this, and the column is NOT NULL.
+      docNumber: nextDocNumber(docData.docType),
       currency: docData.currency || selectedBusiness.currency || "GEL",
       id: newId("doc")
     };
@@ -1328,9 +1349,11 @@ export default function App() {
     setWorkflows(prev => prev.map(w => w.id === id ? { ...w, enabled } : w));
   };
 
-  const handleAddWorkflow = async (wfData: Omit<WorkflowAutomation, "id">) => {
+  const handleAddWorkflow = async (wfData: Omit<WorkflowAutomation, "id" | "executionCount">) => {
     const newWf: WorkflowAutomation = {
       ...wfData,
+      // AutomationsView does not supply this; without it the counter renders blank.
+      executionCount: 0,
       id: newId("wf")
     };
 
