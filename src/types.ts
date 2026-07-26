@@ -75,6 +75,8 @@ export interface DocumentInvoice {
   docNumber: string;
   title: string;
   amount: number;
+  /** Currency this document was issued in. Absent on records predating the column. */
+  currency?: CurrencyCode;
   date: string; // YYYY-MM-DD
   dueDate?: string;
   status: "გადახდილი" | "მოლოდინში" | "გაგზავნილი" | "გაუქმებული";
@@ -112,6 +114,8 @@ export interface Service {
   id: string;
   name: string;
   price: number;
+  /** Currency this price was entered in. Absent on records predating the column. */
+  currency?: CurrencyCode;
   duration: number; // in minutes
   category: string; // e.g., "თმა", "ფრჩხილები", "სახის მოვლა"
   color: string; // Tailwind text/bg color indicator
@@ -137,6 +141,8 @@ export interface Booking {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   price: number;
+  /** Currency this price was agreed in. Absent on records predating the column. */
+  currency?: CurrencyCode;
   status: "დასრულებული" | "მოლოდინში" | "გაუქმებული";
   notes?: string;
 }

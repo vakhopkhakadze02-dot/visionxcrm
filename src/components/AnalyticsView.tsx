@@ -40,6 +40,7 @@ import {
 import { Booking, Client, Service, Staff, Business, formatPrice } from "../types";
 import KPIDetailsModal from "./KPIDetailsModal";
 import { toDateKey } from "../dates";
+import { RateTable, convert, currencyOf } from "../currency";
 import { buildCsv, downloadCsv } from "../csv";
 
 interface AnalyticsViewProps {
@@ -54,6 +55,8 @@ interface AnalyticsViewProps {
     services: Service[];
     staff: Staff[];
   }) => void;
+  /** NBG rates, for folding mixed-currency amounts into one total. */
+  rates?: RateTable | null;
 }
 
 export default function AnalyticsView({
@@ -62,7 +65,8 @@ export default function AnalyticsView({
   clients,
   services,
   staff,
-  onImportData
+  onImportData,
+  rates = null
 }: AnalyticsViewProps) {
   const [dragActive, setDragActive] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -82,7 +86,24 @@ export default function AnalyticsView({
   const completedCount = completedBookings.length;
   const canceledCount = businessBookings.filter(b => b.status === "გაუქმებული").length;
 
-  const totalRevenue = completedBookings.reduce((sum, b) => sum + b.price, 0);
+  // Bookings can hold different currencies, so each is converted into the
+  // business currency at the current NBG rate before summing. Amounts with no
+  // usable rate are counted at face value and reported separately, rather
+  // than silently dropped from revenue.
+  const businessCurrency = selectedBusiness.currency || "GEL";
+  let unconvertedCount = 0;
+  const totalRevenue = Math.round(
+    completedBookings.reduce((sum, b) => {
+      const own = currencyOf(b.currency);
+      if (own === businessCurrency) return sum + b.price;
+      const converted = convert(b.price, own, businessCurrency, rates);
+      if (converted === null) {
+        unconvertedCount++;
+        return sum + b.price;
+      }
+      return sum + converted;
+    }, 0)
+  );
   const avgBookingPrice = completedCount > 0 ? Math.round(totalRevenue / completedCount) : 0;
 
   // Let's compute daily revenue over the last 7 days of July 2026 (July 6 to July 12)
@@ -403,6 +424,11 @@ export default function AnalyticsView({
             <span className="text-xl font-bold text-slate-800 dark:text-slate-100 block mt-1.5 leading-none">
               {formatPrice(totalRevenue, selectedBusiness.currency)}
             </span>
+            {unconvertedCount > 0 && (
+              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold block mt-1 leading-tight">
+                {unconvertedCount} ჩანაწერი კურსის გარეშე დაჯამდა ნომინალით
+              </span>
+            )}
             <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline flex items-center gap-0.5 mt-2">
               დეტალურად &rarr;
             </span>

@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:sync": "node scripts/test-sync-queue.cjs"
+    "test:sync": "node scripts/test-sync-queue.cjs",
+    "test:currency": "node scripts/test-currency.cjs",
+    "test": "npm run test:sync && npm run test:currency"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",

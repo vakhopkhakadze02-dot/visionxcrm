@@ -22,6 +22,8 @@ import {
   X
 } from "lucide-react";
 import { DocumentInvoice, Client, Business, formatPrice, CurrencyCode } from "../types";
+import PriceTag, { CurrencyDisplayMode } from "./PriceTag";
+import { RateTable, currencyOf } from "../currency";
 import CurrencySelector from "./CurrencySelector";
 import { toDateKey, dateKeyFromNow } from "../dates";
 import ConfirmModal from "./ConfirmModal";
@@ -33,6 +35,8 @@ interface DocumentsViewProps {
   onAddDocument: (doc: Omit<DocumentInvoice, "id" | "docNumber">) => void;
   onUpdateDocumentStatus: (id: string, status: DocumentInvoice["status"]) => void;
   onDeleteDocument: (id: string) => void;
+  currencyDisplay?: CurrencyDisplayMode;
+  rates?: RateTable | null;
 }
 
 export default function DocumentsView({
@@ -41,7 +45,9 @@ export default function DocumentsView({
   selectedBusiness,
   onAddDocument,
   onUpdateDocumentStatus,
-  onDeleteDocument
+  onDeleteDocument,
+  currencyDisplay = "record",
+  rates = null
 }: DocumentsViewProps) {
   const [activeTab, setActiveTab] = useState<"all" | "proposal" | "contract" | "invoice">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -250,7 +256,14 @@ export default function DocumentsView({
                       {doc.date}
                     </td>
                     <td className="p-3.5 text-right font-extrabold text-slate-900 dark:text-slate-100 font-mono text-xs">
-                      {formatPrice(doc.amount, selectedBusiness.currency)}
+                      <PriceTag
+                        amount={doc.amount}
+                        currency={doc.currency}
+                        businessCurrency={selectedBusiness.currency || "GEL"}
+                        mode={currencyDisplay}
+                        rates={rates}
+                        secondaryClassName="text-[10px]"
+                      />
                     </td>
                     <td className="p-3.5 text-center">
                       <select
@@ -497,8 +510,8 @@ export default function DocumentsView({
                   <tr key={i} className="border-b">
                     <td className="p-2 font-semibold">{it.name}</td>
                     <td className="p-2 text-center">{it.qty}</td>
-                    <td className="p-2 text-right font-mono">{formatPrice(it.price, selectedBusiness.currency)}</td>
-                    <td className="p-2 text-right font-mono font-bold">{formatPrice(it.qty * it.price, selectedBusiness.currency)}</td>
+                    <td className="p-2 text-right font-mono">{formatPrice(it.price, currencyOf(selectedPrintDoc.currency))}</td>
+                    <td className="p-2 text-right font-mono font-bold">{formatPrice(it.qty * it.price, currencyOf(selectedPrintDoc.currency))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -511,7 +524,7 @@ export default function DocumentsView({
               <div className="text-right">
                 <span className="text-xs text-slate-500 uppercase font-bold block">სულ გადასახდელი:</span>
                 <span className="text-xl font-extrabold text-indigo-600 font-mono">
-                  {formatPrice(selectedPrintDoc.amount, selectedBusiness.currency)}
+                  {formatPrice(selectedPrintDoc.amount, currencyOf(selectedPrintDoc.currency))}
                 </span>
               </div>
             </div>

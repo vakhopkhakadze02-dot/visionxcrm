@@ -69,7 +69,13 @@ import {
 import { SETUP_SQL, TAG_MIGRATION_SQL, stripNewerClientColumns } from "./dbSchema";
 import { isMissingColumnError } from "./syncQueue";
 import { useSyncQueue } from "./useSyncQueue";
+import { useExchangeRates } from "./useExchangeRates";
+import { CurrencyDisplayMode } from "./components/PriceTag";
 import { newId } from "./ids";
+
+/** Narrows a database string to a supported currency, or undefined. */
+const asCurrencyCode = (value: any): CurrencyCode | undefined =>
+  value === "GEL" || value === "USD" || value === "EUR" || value === "GBP" ? value : undefined;
 
 // --- DB DATA MAPPERS ---
 const getBusinessCurrency = (scope: StorageScope, businessId: string): CurrencyCode => {
@@ -78,7 +84,9 @@ const getBusinessCurrency = (scope: StorageScope, businessId: string): CurrencyC
 };
 
 const mapBusinessFromDB = (b: any, scope: StorageScope): Business => {
-  const currency = getBusinessCurrency(scope, b.id);
+  // The column is authoritative; the local map is only a fallback for
+  // projects where the currency migration has not been run yet.
+  const currency = asCurrencyCode(b.currency) ?? getBusinessCurrency(scope, b.id);
   return {
     id: b.id,
     name: b.name,
@@ -103,7 +111,8 @@ const mapBusinessToDB = (b: Business, userId: string) => ({
   email: b.email || null,
   address: b.address || null,
   category: b.category || null,
-  logo_color: b.logoColor
+  logo_color: b.logoColor,
+  currency: b.currency || "GEL"
 });
 
 const mapClientFromDB = (c: any): Client => ({
@@ -149,6 +158,7 @@ const mapDocumentFromDB = (d: any): DocumentInvoice => ({
   docNumber: d.doc_number,
   title: d.title,
   amount: Number(d.amount),
+  currency: asCurrencyCode(d.currency),
   date: d.date,
   dueDate: d.due_date || undefined,
   status: d.status,
@@ -166,6 +176,7 @@ const mapDocumentToDB = (d: DocumentInvoice, userId: string) => ({
   doc_number: d.docNumber,
   title: d.title,
   amount: d.amount,
+  currency: d.currency || "GEL",
   date: d.date,
   due_date: d.dueDate || null,
   status: d.status,
@@ -202,6 +213,7 @@ const mapServiceFromDB = (s: any): Service => ({
   id: s.id,
   name: s.name,
   price: Number(s.price),
+  currency: asCurrencyCode(s.currency),
   duration: Number(s.duration),
   category: s.category,
   color: s.color || "blue"
@@ -212,6 +224,7 @@ const mapServiceToDB = (s: Service, userId: string) => ({
   user_id: userId,
   name: s.name,
   price: s.price,
+  currency: s.currency || "GEL",
   duration: s.duration,
   category: s.category,
   color: s.color
@@ -249,6 +262,7 @@ const mapBookingFromDB = (bk: any): Booking => ({
   date: bk.date,
   time: bk.time,
   price: Number(bk.price),
+  currency: asCurrencyCode(bk.currency),
   status: (bk.status === "დასრულებული" || bk.status === "მოლოდინში" || bk.status === "გაუქმებული" ? bk.status : "მოლოდინში") as any,
   notes: bk.notes || ""
 });
@@ -263,6 +277,7 @@ const mapBookingToDB = (bk: Booking, userId: string) => ({
   date: bk.date,
   time: bk.time,
   price: bk.price,
+  currency: bk.currency || "GEL",
   status: bk.status,
   notes: bk.notes || null
 });
@@ -533,6 +548,24 @@ export default function App() {
   const sync = useSyncQueue(scope, !isLocalMode && !!session?.user?.id, {
     onSchemaGap: () => setShowDbMigrationWarning(true)
   });
+
+  /** National Bank of Georgia rates, refreshed once per publication day. */
+  const exchange = useExchangeRates(scope, !isLocalMode && !!session?.user?.id);
+
+  /**
+   * Which currency leads when a record's own currency differs from the
+   * business's: the record's ("record") or the business's ("business").
+   */
+  const [currencyDisplay, setCurrencyDisplay] = useState<CurrencyDisplayMode>("record");
+
+  useEffect(() => {
+    if (scope) setCurrencyDisplay(readScoped<CurrencyDisplayMode>(scope, "currency_display", "record"));
+  }, [scope]);
+
+  const handleCurrencyDisplayChange = (mode: CurrencyDisplayMode) => {
+    setCurrencyDisplay(mode);
+    if (scope) writeScoped(scope, "currency_display", mode);
+  };
 
   // State lists
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -1170,7 +1203,23 @@ export default function App() {
     setSelectedBusiness(newBus);
   };
 
+  /**
+   * Changes the business's main currency.
+   *
+   * This only affects records created from now on and which currency amounts
+   * are converted *to* for display. Existing services, bookings and invoices
+   * keep the currency they were created in — changing this setting used to
+   * silently relabel them, so a 500 ₾ booking became $500.
+   */
   const handleUpdateCurrency = (currency: CurrencyCode) => {
+    sync.enqueue({
+      entity: "businesses",
+      operation: "update",
+      rowId: selectedBusiness.id,
+      payload: { currency },
+      label: "ბიზნესის ვალუტა"
+    });
+
     setSelectedBusiness(prev => {
       if (scope) {
         const currencies = readScoped<Record<string, CurrencyCode>>(scope, "business_currencies", {});
@@ -1231,6 +1280,7 @@ export default function App() {
   const handleAddDocument = async (docData: Omit<DocumentInvoice, "id">) => {
     const newDoc: DocumentInvoice = {
       ...docData,
+      currency: docData.currency || selectedBusiness.currency || "GEL",
       id: newId("doc")
     };
 
@@ -1319,6 +1369,7 @@ export default function App() {
       // Add
       const newBooking: Booking = {
         ...bookingData,
+        currency: bookingData.currency || selectedBusiness.currency || "GEL",
         id: newId("bok")
       };
       sync.enqueue({
@@ -1396,6 +1447,8 @@ export default function App() {
   const handleAddService = async (serviceData: Omit<Service, "id">) => {
     const newService: Service = {
       ...serviceData,
+      // Stamp the currency in force now, so later changes cannot relabel it.
+      currency: serviceData.currency || selectedBusiness.currency || "GEL",
       id: newId("ser")
     };
 
@@ -1729,6 +1782,10 @@ export default function App() {
           <CurrencySelector 
             currentCurrency={selectedBusiness.currency || "GEL"}
             onSelectCurrency={handleUpdateCurrency}
+            displayMode={currencyDisplay}
+            onDisplayModeChange={handleCurrencyDisplayChange}
+            rates={exchange.table}
+            onRefreshRates={() => exchange.refresh(true)}
             compact
           />
           <NotificationCenter 
@@ -1968,6 +2025,10 @@ export default function App() {
             <CurrencySelector 
               currentCurrency={selectedBusiness.currency || "GEL"}
               onSelectCurrency={handleUpdateCurrency}
+              displayMode={currencyDisplay}
+              onDisplayModeChange={handleCurrencyDisplayChange}
+              rates={exchange.table}
+              onRefreshRates={() => exchange.refresh(true)}
             />
             <NotificationCenter 
               bookings={bookings}
@@ -2033,6 +2094,8 @@ export default function App() {
               onEditService={handleEditService}
               onDeleteService={handleDeleteService}
               currency={selectedBusiness.currency || "GEL"}
+              currencyDisplay={currencyDisplay}
+              rates={exchange.table}
             />
           )}
 
@@ -2054,6 +2117,7 @@ export default function App() {
               services={services}
               staff={staff}
               onImportData={handleImportData}
+              rates={exchange.table}
             />
           )}
 
@@ -2091,6 +2155,8 @@ export default function App() {
               onAddDocument={handleAddDocument}
               onUpdateDocumentStatus={handleUpdateDocumentStatus}
               onDeleteDocument={handleDeleteDocument}
+              currencyDisplay={currencyDisplay}
+              rates={exchange.table}
             />
           )}
 

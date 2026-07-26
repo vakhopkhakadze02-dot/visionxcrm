@@ -45,7 +45,9 @@ export type ScopedKey =
   | "notifications"
   | "notified_booking_ids"
   | "business_currencies"
-  | "pending_ops";
+  | "pending_ops"
+  | "exchange_rates"
+  | "currency_display";
 
 /** Un-namespaced keys written by versions before scoping existed. */
 const LEGACY_KEYS: Record<string, ScopedKey> = {
