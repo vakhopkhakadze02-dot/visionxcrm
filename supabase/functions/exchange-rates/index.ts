@@ -94,18 +94,39 @@ Deno.serve(async (req: Request) => {
   const today = tbilisiDate();
 
   try {
-    // Serve the cached day if we already have it.
+    // Serve from cache when NBG has already been asked today.
+    //
+    // The check is on fetched_at, not on the rate date: NBG publishes with a
+    // validity date that lags the calendar (on the 27th the current rates are
+    // still dated the 25th, and they do not move at weekends). Keying the
+    // lookup on today's date therefore never matched what had been stored, and
+    // every request went out to NBG.
     const cached = await supabase
       .from("exchange_rates")
-      .select("code, rate, quantity")
-      .eq("date", today);
+      .select("date, code, rate, quantity, fetched_at")
+      .order("fetched_at", { ascending: false })
+      .limit(SUPPORTED.length * 3);
 
-    if (!cached.error && cached.data && cached.data.length >= SUPPORTED.length) {
-      const rates: Record<string, RateEntry> = {};
-      for (const row of cached.data) {
-        rates[row.code] = { rate: Number(row.rate), quantity: Number(row.quantity) || 1 };
+    if (!cached.error && cached.data && cached.data.length > 0) {
+      const lastFetchedOn = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Tbilisi",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(new Date(cached.data[0].fetched_at));
+
+      if (lastFetchedOn === today) {
+        const latestDate = cached.data[0].date;
+        const rates: Record<string, RateEntry> = {};
+        for (const row of cached.data) {
+          if (row.date === latestDate) {
+            rates[row.code] = { rate: Number(row.rate), quantity: Number(row.quantity) || 1 };
+          }
+        }
+        if (Object.keys(rates).length >= SUPPORTED.length) {
+          return json({ date: latestDate, rates, source: "cache" });
+        }
       }
-      return json({ date: today, rates, source: "cache" });
     }
 
     const fresh = await fetchFromNbg();
@@ -122,8 +143,19 @@ Deno.serve(async (req: Request) => {
       .upsert(rows, { onConflict: "date,code" });
 
     // A failed cache write is not worth failing the request over — the caller
-    // still gets today's rates, we just fetch NBG again next time.
-    if (upsertError) console.warn("Could not cache exchange rates:", upsertError);
+    // still gets today's rates. But it must not be invisible either: silently
+    // swallowing it meant every request re-fetched NBG with nothing to show for
+    // it, so the reason is reported alongside the rates.
+    if (upsertError) {
+      console.warn("Could not cache exchange rates:", upsertError);
+      return json({
+        date: fresh.date,
+        rates: fresh.rates,
+        source: "nbg",
+        cacheError: upsertError.message || String(upsertError),
+        serviceRoleConfigured: Boolean(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))
+      });
+    }
 
     return json({ date: fresh.date, rates: fresh.rates, source: "nbg" });
   } catch (err) {
