@@ -147,13 +147,19 @@ ALTER TABLE services ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GEL';
 
--- 3. Grant table permissions to signed-in users
+-- 3. Grant table permissions
 -- Note: no grants to the "anon" role. Every query this app makes is
 -- authenticated, and anon holds the public key that ships in the bundle, so
 -- granting it table access would leave RLS as the only thing standing between
 -- the internet and the data.
-GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+--
+-- service_role is required by the Edge Functions. It bypasses RLS, but that is
+-- separate from table privileges — without an explicit grant it gets
+-- "permission denied for table" on anything this migration created, which is
+-- what silently stopped exchange_rates from ever being cached. The role is
+-- server-only and never reaches a browser.
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
 
 -- 4. Enable Row Level Security (RLS)
 ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
