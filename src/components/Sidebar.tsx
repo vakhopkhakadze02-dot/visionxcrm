@@ -214,18 +214,20 @@ export default function Sidebar({
               ))}
             </div>
             
-            <div className="border-t border-slate-700 mt-1.5 pt-1.5 px-2">
-              <button
-                onClick={() => {
-                  setShowAddModal(true);
-                  setDropdownOpen(false);
-                }}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors font-semibold"
-              >
-                <Plus className="w-3 h-3" />
-                ახალი ბიზნესი
-              </button>
-            </div>
+            {businesses.length === 0 && (
+              <div className="border-t border-slate-700 mt-1.5 pt-1.5 px-2">
+                <button
+                  onClick={() => {
+                    setShowAddModal(true);
+                    setDropdownOpen(false);
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors font-semibold"
+                >
+                  <Plus className="w-3 h-3" />
+                  ახალი ბიზნესი
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

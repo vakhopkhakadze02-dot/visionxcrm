@@ -1182,6 +1182,14 @@ export default function App() {
   // --- ACTIONS ---
 
   const handleAddBusiness = async (name: string, owner: string, category: string) => {
+    // One account = one business. This should be unreachable via the UI
+    // (the "add business" button is hidden once an account has a business),
+    // but guard here too in case it's ever called some other way.
+    if (businesses.length >= 1) {
+      console.warn("Blocked: account already has a business.");
+      return;
+    }
+
     const newBus: Business = {
       id: newId("bus"),
       name,
